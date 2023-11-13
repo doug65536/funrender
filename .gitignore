@@ -1,0 +1,6 @@
+funrender
+*.d
+*.o
+perf.data
+perf.data.old
+gmon.out
