@@ -1676,18 +1676,6 @@ float intercept(float x1, float w1, float x2, float w2)
 float intercept_neg(float x1, float w1, float x2, float w2)
 {
     float t = (w1 + x1) / ((w1 + x1) - (w2 + x2));
-    //       *(w1 - x1) / ((w1 - x1) - (w2 - x2));
-    //        (-1.0f - x1) / (w2 - w1);
-    //        (w1 - x1) / (x2 - x1 + w1 - w2);
-    //        (w1 - x1) / (x1 - x2 + w1 - w2);
-    //        (x1 - w1) / ((x1 - w1) - (x2 - w2));
-    //        (w1 - x1) / (x2 - x1 - (w2 - w1));
-    //        (w1 - x1) / (x2 - x1 + w1 - w2);
-    //        (x1 - w1) / (x1 - x2 + w1 - w2);
-    //        (w1 - x1) / (x2 - x1 + w1 - w2);
-    //        (w1 - x1) / ((x2 - x1) + (w1 - w2));
-    //        (w1 - x1) / (x2 - x1 + w1 - w2);
-    //        (w1 + x1) / (x1 + w1 - x2 - w2);
     assert(t >= 0.0f && t <= 1.0f);
     return t;
 }
