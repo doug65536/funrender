@@ -9,10 +9,82 @@
         "request": "launch",
         "program": "${workspaceFolder}/funrender",
         "args": [],
-        "preLaunchTask": "build",
+        "preLaunchTask": "build debug",
         "stopAtEntry": false,
         "cwd": "${workspaceFolder}",
         "environment": [{"name": "CPUS", "value": "1"}],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            },
+            {
+                "description": "Set Disassembly Flavor to Intel",
+                "text": "-gdb-set disassembly-flavor intel",
+                "ignoreFailures": true
+            }
+        ]
+    }, {
+        "name": "Sanitized",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/funrender",
+        "args": [],
+        "preLaunchTask": "build sanitized",
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [{"name": "CPUS", "value": "1"}],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            },
+            {
+                "description": "Set Disassembly Flavor to Intel",
+                "text": "-gdb-set disassembly-flavor intel",
+                "ignoreFailures": true
+            }
+        ]
+    }, {
+        "name": "Buggy",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/funrender",
+        "args": [],
+        "preLaunchTask": "build debug",
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [{"name": "CPUS", "value": "3"}],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            },
+            {
+                "description": "Set Disassembly Flavor to Intel",
+                "text": "-gdb-set disassembly-flavor intel",
+                "ignoreFailures": true
+            }
+        ]
+    }, {
+        "name": "Fast",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/funrender",
+        "args": [],
+        "preLaunchTask": "build release",
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [{"name": "CPUS", "value": "3"}],
         "externalConsole": false,
         "MIMode": "gdb",
         "setupCommands": [
@@ -33,10 +105,10 @@
         "request": "launch",
         "program": "${workspaceFolder}/funrender",
         "args": [],
-        "preLaunchTask": "build",
+        "preLaunchTask": "build debug",
         "stopAtEntry": false,
         "cwd": "${workspaceFolder}",
-        "environment": [{"name": "CPUS", "value": "4"}],
+        "environment": [{"name": "CPUS", "value": "16"}],
         "externalConsole": false,
         "MIMode": "gdb",
         "setupCommands": [

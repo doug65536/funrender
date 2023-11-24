@@ -2,9 +2,10 @@
     "C_Cpp.default.includePath": [
         "/usr/include/SDL2"
     ],
-    "C_Cpp.default.compilerPath": "/usr/bin/g++",
+    "C_Cpp.default.compilerPath": "/usr/bin/clang++",
     "files.associations": {
         "*.cc": "cpp",
+        "*.cpp": "cpp",
         "array": "cpp",
         "atomic": "cpp",
         "bit": "cpp",
@@ -82,11 +83,18 @@
         "filesystem": "cpp",
         "ios": "cpp",
         "locale": "cpp",
-        "__split_buffer": "cpp"
+        "__split_buffer": "cpp",
+        "iomanip": "cpp",
+        "__mutex_base": "cpp",
+        "span": "cpp",
+        "variant": "cpp"
     },
     "C_Cpp.default.compilerArgs": [
         "-std=c++17",
         "-pthread"
     ],
-    "files.trimTrailingWhitespace": true
+    "files.trimTrailingWhitespace": true,
+    "C_Cpp.default.defines": [
+        "HAVE_VEC256"
+    ]
 }
