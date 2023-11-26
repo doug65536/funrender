@@ -118,6 +118,45 @@ struct scaninfo {
         result.p = lhs * rhs.p;
         return result;
     }
+
+    bool operator<(scaninfo const &rhs) const
+    {
+        glm::bvec2 tlt = glm::lessThan(t, rhs.t);
+        glm::bvec2 tgt = glm::lessThan(rhs.t, t);
+        glm::bvec4 plt = glm::lessThan(p, rhs.p);
+        glm::bvec4 pgt = glm::lessThan(rhs.p, p);
+        glm::bvec3 nlt = glm::lessThan(n, rhs.n);
+        glm::bvec3 ngt = glm::lessThan(rhs.n, n);
+
+        int return_true = -tlt.s;
+        int return_false = -tgt.s;
+
+        return_true |= ~return_false & -tlt.t;
+        return_false |= ~return_true & -tgt.t;
+
+        return_true |= ~return_false & -plt.s;
+        return_false |= ~return_true & -pgt.s;
+
+        return_true |= ~return_false & -plt.t;
+        return_false |= ~return_true & -pgt.t;
+
+        return_true |= ~return_false & -plt.z;
+        return_false |= ~return_true & -pgt.z;
+
+        return_true |= ~return_false & -plt.w;
+        return_false |= ~return_true & -pgt.w;
+
+        return_true |= ~return_false & -nlt.s;
+        return_false |= ~return_true & -ngt.s;
+
+        return_true |= ~return_false & -nlt.t;
+        return_false |= ~return_true & -ngt.t;
+
+        return_true |= ~return_false & -nlt.z;
+        return_false |= ~return_true & -ngt.z;
+
+        return return_true;
+    }
 };
 
 template <class T>
@@ -137,8 +176,8 @@ struct std::hash<scaninfo> {
         #else
         // Wow
         std::size_t seed = 0;
-        hash_combine(seed, std::hash<float>()(rhs.t.x));
-        hash_combine(seed, std::hash<float>()(rhs.t.y));
+        hash_combine(seed, std::hash<float>()(rhs.t.s));
+        hash_combine(seed, std::hash<float>()(rhs.t.t));
         hash_combine(seed, std::hash<float>()(rhs.p.x));
         hash_combine(seed, std::hash<float>()(rhs.p.y));
         hash_combine(seed, std::hash<float>()(rhs.p.z));
@@ -212,4 +251,22 @@ void texture_polygon(frame_param const& frame,
     texture_polygon(frame, vinp.data(), N);
 }
 
+void texture_elements(frame_param const &fp,
+    scaninfo const *vertices, size_t vertex_count,
+    uint32_t const *elements, size_t element_count);
+
 void set_transform(glm::mat4 const& mat);
+
+extern bool mouselook_pressed[]; // WASDCZ
+extern float mouselook_yaw;
+extern float mouselook_pitch;
+extern float mouselook_yaw_scale;
+extern float mouselook_pitch_scale;
+extern glm::vec3 mouselook_pos;
+extern glm::vec3 mouselook_vel;
+extern glm::vec3 mouselook_acc;
+extern glm::vec3 mouselook_nz;
+extern glm::vec3 mouselook_px;
+extern glm::vec3 mouselook_py;
+
+extern std::vector<std::string> command_line_files;

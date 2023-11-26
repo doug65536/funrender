@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <type_traits>
 
+using vecu8x16 = uint8_t
+    __attribute__((__vector_size__(sizeof(uint32_t) * 4)));
 using vecu32x4 = uint32_t
     __attribute__((__vector_size__(sizeof(uint32_t) * 4)));
 using veci32x4 = int32_t
@@ -9,6 +11,8 @@ using veci32x4 = int32_t
 using vecf32x4 = float
     __attribute__((__vector_size__(sizeof(float) * 4)));
 
+using vecu8x32 = uint8_t
+    __attribute__((__vector_size__(sizeof(uint32_t) * 8)));
 using vecu32x8 = uint32_t
     __attribute__((__vector_size__(sizeof(uint32_t) * 8)));
 using veci32x8 = int32_t
@@ -16,6 +20,8 @@ using veci32x8 = int32_t
 using vecf32x8 = float
     __attribute__((__vector_size__(sizeof(float) * 8)));
 
+using vecu8x64 = uint8_t
+    __attribute__((__vector_size__(sizeof(uint32_t) * 16)));
 using vecu32x16 = uint32_t
     __attribute__((__vector_size__(sizeof(uint32_t) * 16)));
 using veci32x16 = int32_t

@@ -11,6 +11,7 @@
 #include <thread>
 #include <unordered_map>
 #include <mutex>
+#include <filesystem>
 #include <vector>
 #include <deque>
 #include <list>
@@ -49,6 +50,22 @@ std::vector<scaninfo> edges[phase_count];
 std::unordered_map<scaninfo, unsigned> edges_lookup[phase_count];
 
 int window_w, window_h;
+
+// [1029.33,0,388.895] -3.85 -2.22
+bool mouselook_enabled;
+bool mouselook_pressed[6]; // WASDCZ
+float mouselook_yaw = 0.0f;
+float mouselook_pitch = 0.0f;
+// float mouselook_yaw = -2.22f;
+// float mouselook_pitch = -3.85f;
+float mouselook_yaw_scale = 0.01f;
+float mouselook_pitch_scale = 0.01f;
+glm::vec3 mouselook_pos{1029.33,0,388.895};
+glm::vec3 mouselook_vel;
+glm::vec3 mouselook_acc;
+glm::vec3 mouselook_nz;
+glm::vec3 mouselook_px;
+glm::vec3 mouselook_py;
 
 #if PIXELS_HISTOGRAM
 size_t const pixels_histogram_size = 1024;
@@ -170,7 +187,7 @@ public:
         out << "#" << cpu_nr <<
             ": executed " << executed <<
             ", drained " << drained << " times (" <<
-            (100ULL * drained / executed) << '.' <<
+            (executed ? 100ULL * drained / executed : 0) << '.' <<
             std::setw(3) << std::setfill('0') <<
             ((100000ULL * drained / executed) % 1000) << "%)\n";
     }
@@ -613,7 +630,7 @@ std::vector<fill_task_worker> task_workers;
 
 std::vector<scanconv_ent> scanconv_scratch;
 
-void render_frame(frame_param const& frame);
+void user_frame(frame_param const& frame);
 
 uint32_t draw_nr;
 
@@ -878,8 +895,8 @@ void fill_mainloop(fill_job &job,
         mask &= vecinfo_t<T>::lanemask[sane_min(int(vec_sz), pixels - i)];
 
         // Linear interpolate the u/w and v/w
-        F v_vec = (n_vec * diff.t.y) + work.first.t.y;
-        F u_vec = (n_vec * diff.t.x) + work.first.t.x;
+        F v_vec = (n_vec * diff.t.t) + work.first.t.t;
+        F u_vec = (n_vec * diff.t.s) + work.first.t.s;
 
         // Linear interpolate 1/w for perspective correction
         F w_vec = (n_vec * diff.p.w) + work.first.p.w;
@@ -891,8 +908,8 @@ void fill_mainloop(fill_job &job,
         n_vec += n_step;
 
         // Perspective correction
-        u_vec /= w_vec;
         v_vec /= w_vec;
+        u_vec /= w_vec;
 
         // Scale by texture width and height
         v_vec *= texture->fh;
@@ -980,13 +997,9 @@ static void fill_worker(size_t worker_nr, fill_job &job)
         assert(!"Clipping messed up");
         return;
     }
-    work.first.p.w = 1.0f / work.first.p.w;
-    work.second.p.w = 1.0f / work.second.p.w;
+    // work.first.p.w = 1.0f / work.first.p.w;
+    // work.second.p.w = 1.0f / work.second.p.w;
     // std::cerr << "Scanline at " << y << "\n";
-    work.first.t.x *= work.first.p.w;
-    work.first.t.y *= work.first.p.w;
-    work.second.t.x *= work.second.p.w;
-    work.second.t.y *= work.second.p.w;
     scaninfo diff = work.second - work.first;
     int pixels = std::abs((int)diff.p.x);
     if (!pixels)
@@ -1113,12 +1126,96 @@ bool initSDL(int width, int height) {
     return true;
 }
 
+bool handle_key_down_event(SDL_KeyboardEvent const& e)
+{
+    bool is_keydown = (e.type == SDL_KEYDOWN);
+
+    switch(e.keysym.sym) {
+    case SDLK_ESCAPE:
+        if (e.type == SDL_KEYUP)
+            return true;
+        if (SDL_ShowCursor(SDL_QUERY) != SDL_ENABLE) {
+            mouselook_enabled = false;
+            SDL_SetRelativeMouseMode(SDL_FALSE);
+            SDL_ShowCursor(SDL_ENABLE);
+        } else {
+            mouselook_enabled = true;
+            SDL_ShowCursor(SDL_DISABLE);
+            SDL_SetRelativeMouseMode(SDL_TRUE);
+        }
+
+        break;
+
+    case SDLK_w:
+        // W key
+        mouselook_pressed[0] = is_keydown;
+        break;
+
+    case SDLK_a:
+        // A key
+        mouselook_pressed[1] = is_keydown;
+        break;
+
+    case SDLK_s:
+        // S key
+        mouselook_pressed[2] = is_keydown;
+        break;
+
+    case SDLK_d:
+        // D key
+        mouselook_pressed[3] = is_keydown;
+        break;
+
+    case SDLK_c:
+        // C key
+        mouselook_pressed[4] = is_keydown;
+        break;
+
+    case SDLK_z:
+        // Z key
+        mouselook_pressed[5] = is_keydown;
+        break;
+
+    }
+    return true;
+}
+
+bool handle_mouse_wheel_event(SDL_MouseWheelEvent const& e)
+{
+    // handle the event here
+
+    return true;
+}
+
+bool handle_mouse_motion_event(SDL_MouseMotionEvent const& e)
+{
+    if (mouselook_enabled) {
+        mouselook_yaw += e.xrel * mouselook_yaw_scale;
+        mouselook_pitch += e.yrel * mouselook_pitch_scale;
+    }
+    return true;
+}
+
 bool handle_window_event(SDL_WindowEvent const& e)
 {
     switch (e.event) {
     case SDL_WINDOWEVENT_RESIZED:
         window_w = e.data1;
         window_h = e.data2;
+        return true;
+
+    case SDL_WINDOWEVENT_FOCUS_GAINED:
+        // std::cerr << "Focus gained\n";
+        // mouselook_enabled = true;
+        // SDL_SetRelativeMouseMode(SDL_TRUE);
+        // SDL_ShowCursor(SDL_FALSE);
+        return true;
+
+    case SDL_WINDOWEVENT_FOCUS_LOST:
+        std::cerr << "Focus lost\n";
+        mouselook_enabled = false;
+        SDL_SetRelativeMouseMode(SDL_FALSE);
+        SDL_ShowCursor(SDL_ENABLE);
         return true;
     }
     return true;
@@ -1133,9 +1230,25 @@ bool handleEvents() {
             return false;
 
         case SDL_WINDOWEVENT:
-            return handle_window_event(e.window);
+            handle_window_event(e.window);
+            break;
+
+        case SDL_MOUSEMOTION:
+            handle_mouse_motion_event(e.motion);
+            break;
+
+        case SDL_MOUSEWHEEL:
+            handle_mouse_wheel_event(e.wheel);
+            break;
+
+        case SDL_KEYDOWN:   // fall through
+        case SDL_KEYUP:
+            handle_key_down_event(e.key);
+            break;
+
         }
     }
+
     return true;
 }
 
@@ -1170,7 +1283,7 @@ void render()
     // fp.left = 75;
     fp.z_buffer = z_buffer;
 
-    render_frame(fp);
+    user_frame(fp);
 
     // std::cout << "Enqueue barrier at end of phase " << phase << "\n";
     //time_point qbarrier_st = clk::now();
@@ -1361,10 +1474,24 @@ int setup(int width, int height);
 void cleanup(int width, int height);
 
 bool measure;
+std::vector<std::string> command_line_files;
 
-int main(int argc, char** argv)
+int main(int argc, char const * const * argv)
 {
-    measure = (argc > 1 && !strcmp(argv[1], "--measure"));
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--measure")) {
+            measure = true;
+            continue;
+        }
+
+        if (!std::filesystem::exists(argv[i])) {
+            std::cerr << "File not found: " << argv[i] << "\n";
+            return EXIT_FAILURE;
+        }
+
+        command_line_files.emplace_back(argv[i]);
+        continue;
+    }
 
     if (!initSDL(SCREEN_WIDTH, SCREEN_HEIGHT))
         return 1;
@@ -1715,10 +1842,23 @@ static scaninfo *scaninfo_transform(frame_param const& fp,
     return vinp_scratch.data();
 }
 
+// Simpler to just say them all twice than to wrap around the index
 static float constexpr (glm::vec4::*plane_lookup[]) = {
     &glm::vec4::x,
     &glm::vec4::y,
+    &glm::vec4::z,
+    &glm::vec4::x,
+    &glm::vec4::y,
     &glm::vec4::z
+};
+
+static float constexpr plane_sign[] = {
+    1.0f,
+    1.0f,
+    1.0f,
+    -1.0f,
+    -1.0f,
+    -1.0f
 };
 
 void texture_polygon(frame_param const& frame,
@@ -1780,37 +1920,29 @@ void texture_polygon(frame_param const& frame,
 #endif
 
             // Do the XYZ planes twice, once for - and once for +
-            field = plane_lookup[plane < 3 ? plane : plane - 3];
+            field = plane_lookup[plane];
             // Adjust the intercept function for -w or +w, appropriately
-            float clip_sign = plane < 3 ? 1.0f : -1.0f;
+            float clip_sign = plane_sign[plane];
 
             // If it crossed from clipped to not clipped or vice versa
             int diff_mask = edge_mask ^ next_mask;
 
             if (diff_mask & (1 << plane)) {
                 // The edge crossed the plane
-                if (edge_mask & (1 << plane)) {
-                    // Starts outside clip plane
-                    float t = intercept_neg(
-                        vst.p.*field * clip_sign, vst.p.w,
-                        ven.p.*field * clip_sign, ven.p.w
-                        );
+                // Starts outside clip plane
+                float t = intercept_neg(
+                    vst.p.*field * clip_sign, vst.p.w,
+                    ven.p.*field * clip_sign, ven.p.w
+                    );
 #if DEBUG_CLIPPING
-                    dump(t, "(starts outside)");
-#endif
-                    vout_scratch.emplace_back(((ven - vst) * t) + vst);
-                } else {
-                    // Starts inside clip plane
-                    float t = intercept_neg(
-                        vst.p.*field * clip_sign, vst.p.w,
-                        ven.p.*field * clip_sign, ven.p.w);
-#if DEBUG_CLIPPING
-                    dump(t, "(starts inside)");
+                dump(t, "(starts outside)");
 #endif
 
+                if (!(edge_mask & (1 << plane)))
                     vout_scratch.emplace_back(vst);
-                    vout_scratch.emplace_back(((ven - vst) * t) + vst);
-                }
+                scaninfo new_vertex;
+                new_vertex = ((ven - vst) * t) + vst;
+                vout_scratch.emplace_back(new_vertex);
             } else if (!(edge_mask & (1 << plane))) {
                 vout_scratch.emplace_back(vst);
             }
@@ -1828,6 +1960,8 @@ void texture_polygon(frame_param const& frame,
         vertex.p.y *= oow;
         vertex.p.z *= oow;
         vertex.p.w = oow;
+        vertex.t.s *= oow;
+        vertex.t.t *= oow;
         // Scale -1.0-to-1.0 range down to -0.5-to-0.5
         vertex.p.x *= 0.5f;
         vertex.p.y *= 0.5f;
@@ -1884,26 +2018,36 @@ std::vector<char32_t> ucs32(char const *start, char const *end,
     uint8_t const *en = (uint8_t const *)end;
     std::vector<char32_t> result;
     char32_t unicode_replacement = (char32_t)0xfffd;
+
     while (st < en) {
         if (*st < 0x80) {
             result.push_back(*st++);
         } else if ((*st & 0xe0) == 0xc0 &&
-                st + 1 < en && ((st[1] & 0xc0) == 0x80)) {
+                st + 1 < en &&
+                (st[0] & 0x1f) != 0 &&
+                ((st[1] & 0xc0) == 0x80)) {
             // 2-byte
             result.push_back(((st[0] & 0x1f) << 6) |
-                (st[1] & 0x3F));
+                (st[1] & 0x3f));
             st += 2;
         } else if ((st[0] & 0xf0) == 0xe0 &&
                 st + 2 < en &&
+                (st[0] & 0x0F) != 0 &&
                 (st[1] & 0xc0) == 0x80 &&
                 (st[2] & 0xc0) == 0x80) {
             // 3-byte
-            result.push_back(((st[0] & 0xf) << 12) |
+            char32_t codepoint = ((st[0] & 0xf) << 12) |
                 ((st[1] & 0x3F) << 6) |
-                ((st[2] & 0x3F)));
+                ((st[2] & 0x3F));
+            // check for sneaky surrogate pair
+            codepoint = (codepoint >= 0xD800 && codepoint <= 0xDFFF)
+                ? unicode_replacement
+                : codepoint;
+            result.push_back(codepoint);
             st += 3;
         } else if ((st[0] & 0xf8) == 0xf0 &&
                 st + 3 < en &&
+                (st[0] & 0x07) != 0 &&
                 (st[1] & 0xc0) == 0x80 &&
                 (st[2] & 0xc0) == 0x80 &&
                 (st[3] & 0xc0) == 0x80) {
@@ -1921,6 +2065,40 @@ std::vector<char32_t> ucs32(char const *start, char const *end,
                 *ret_failed = true;
         }
     }
+
+    return result;
+}
+
+__attribute__((__format__(printf, 5, 0)))
+bool format_text_v(frame_param const& frame,
+    int x, int y, uint32_t color,
+    char const *format, va_list ap)
+{
+    va_list ap2;
+    va_copy(ap2, ap);
+    int len = vsnprintf(nullptr, 0, format, ap);
+    if (len < 0)
+        return false;
+    std::vector<char> buffer(len + 1);
+    int len2 = vsnprintf(buffer.data(), buffer.size(), format, ap2);
+    va_end(ap2);
+    bool ok = len == len2;
+    if (len && ok) {
+        draw_text(frame, x, y, buffer.data(),
+            buffer.data() + buffer.size(), 0, color);
+    }
+    return ok;
+}
+
+__attribute__((__format__(printf, 5, 6)))
+bool format_text(frame_param const& frame,
+    int x, int y, uint32_t color,
+    char const *format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
+    bool result = format_text_v(frame, x, y, color, format, ap);
+    va_end(ap);
     return result;
 }
 
@@ -2037,7 +2215,8 @@ font_data text_init(int size, int first_cp, int last_cp)
     if (TTF_Init() != 0)
         return data;
 
-    char const *font_name = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf";
+    char const *font_name = "Ephesis-Regular.ttf";
+    // char const *font_name = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf";
     //char const *font_name = "/usr/share/fonts/truetype/tlwg/Purisa-BoldOblique.ttf";
     //char const *font_name = "/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf";
     //char const *font_name = "/usr/share/fonts/truetype/freefont/FreeMono.ttf";
@@ -2178,4 +2357,24 @@ size_t hash_bytes(void const *data, size_t size)
 {
     return std::hash<std::string_view>()(
         std::string_view((char const *)data, size));
+}
+
+void texture_elements(frame_param const &fp,
+    scaninfo const *vertices, size_t vertex_count,
+    uint32_t const *elements, size_t element_count)
+{
+    // Transform into clipping scratch
+    scaninfo_transform(fp, vertices, vertex_count);
+    // Take it and give clipping scratch the empty vector
+    std::vector<scaninfo> xfv;
+    // todo: 64 is a bit arbitrary, consider updating after analysis
+    xfv.reserve(64);
+    xfv.swap(vinp_scratch);
+
+    size_t constexpr vertices_per_triangle = 3;
+
+    for (size_t i = 0; i + 2 < element_count; i += vertices_per_triangle) {
+        texture_triangle(fp, vertices[elements[i]],
+            vertices[elements[i+1]], vertices[elements[i+2]]);
+    }
 }
