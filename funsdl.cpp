@@ -22,7 +22,10 @@
 
 #include "affinity.h"
 #include "abstract_vector.h"
-
+#include "barrier.h"
+#include "task_worker.h"
+#include "fastminmax.h"
+#include "text.h"
 
 static int blit_to_screen(SDL_Surface *surface, SDL_Rect &src,
     SDL_Surface *window_surface, SDL_Rect &dest);
@@ -44,7 +47,6 @@ static int blit_to_screen(SDL_Surface *surface, SDL_Rect &src,
 uint64_t last_fps;
 uint64_t smooth_fps;
 
-font_data text_init(int size, int first_cp = 1, int last_cp = 0xFFFF);
 constexpr size_t phase_count = 2;
 std::vector<scaninfo> edges[phase_count];
 std::unordered_map<scaninfo, unsigned> edges_lookup[phase_count];
@@ -53,11 +55,11 @@ int window_w, window_h;
 
 // [1029.33,0,388.895] -3.85 -2.22
 bool mouselook_enabled;
-bool mouselook_pressed[6]; // WASDCZ
-float mouselook_yaw = 0.0f;
-float mouselook_pitch = 0.0f;
-// float mouselook_yaw = -2.22f;
-// float mouselook_pitch = -3.85f;
+bool mouselook_pressed[6]; // WASDRF
+// float mouselook_yaw = 0.0f;
+// float mouselook_pitch = 0.0f;
+float mouselook_pitch = -3.72f;
+float mouselook_yaw = -0.42f;
 float mouselook_yaw_scale = 0.01f;
 float mouselook_pitch_scale = 0.01f;
 glm::vec3 mouselook_pos{1029.33,0,388.895};
@@ -66,13 +68,12 @@ glm::vec3 mouselook_acc;
 glm::vec3 mouselook_nz;
 glm::vec3 mouselook_px;
 glm::vec3 mouselook_py;
+glm::vec3 mouselook_pz;
 
 #if PIXELS_HISTOGRAM
 size_t const pixels_histogram_size = 1024;
 std::atomic_ulong pixels_histogram[pixels_histogram_size];
 #endif
-
-static font_data glyphs;
 
 #if PIXELS_HISTOGRAM
 void dump_histogram(int height)
@@ -105,527 +106,11 @@ void dump_histogram(int height)
 }
 #endif
 
-// Some idiot changed libstdc++ to use an if instead of conditional operator
-// and min generates branches, ffs.
-template<typename T>
-constexpr T sane_min(T a, T b)
-{
-    return a <= b ? a : b;
-}
-
-template<typename T>
-constexpr T sane_max(T a, T b)
-{
-    return a >= b ? a : b;
-}
-
-template<typename T, typename F = std::function<void(size_t, T&)>,
-    typename = typename std::is_invocable<F, T&>::type>
-class task_worker {
-    using scoped_lock = std::unique_lock<std::mutex>;
-public:
-    task_worker() = default;
-
-    template<typename U,
-        typename = typename std::enable_if_t<std::is_convertible_v<U,F>>>
-    task_worker(U&& fn, size_t worker_nr, size_t cpu_nr)
-        : worker_nr(worker_nr)
-        , task_handler{std::forward<U>(fn)}
-    {
-        start(cpu_nr);
-    }
-
-    task_worker& operator=(task_worker const&) = delete;
-    task_worker(task_worker const&) = delete;
-
-    task_worker& operator=(task_worker&&) = default;
-    task_worker(task_worker&& rhs) = default;
-
-    ~task_worker()
-    {
-        if (worker_thread.joinable())
-            stop();
-    }
-
-    template<typename U,
-        typename = typename std::enable_if_t<std::is_convertible_v<U,F>>>
-    void set_task_handler(U&& fn, size_t cpu_nr)
-    {
-        scoped_lock lock(unm->worker_lock);
-        task_handler = std::forward<U>(fn);
-        if (!worker_thread.joinable()) {
-            lock.unlock();
-            start(cpu_nr);
-        }
-    }
-
-    void start(size_t cpu_nr)
-    {
-        scoped_lock lock(unm->worker_lock);
-        if (!worker_thread.joinable())
-            worker_thread = std::thread(
-                &task_worker::worker, this, cpu_nr);
-    }
-
-    void stop()
-    {
-        scoped_lock lock(unm->worker_lock);
-        done = true;
-        idle = false;
-        unm->not_empty.notify_all();
-        dump_statistics(std::cerr);
-#if PIXELS_HISTOGRAM
-        dump_histogram(12);
-#endif
-        lock.unlock();
-        worker_thread.join();
-        worker_thread = std::thread();
-    }
-
-    void dump_statistics(std::ostream &out)
-    {
-        out << "#" << cpu_nr <<
-            ": executed " << executed <<
-            ", drained " << drained << " times (" <<
-            (executed ? 100ULL * drained / executed : 0) << '.' <<
-            std::setw(3) << std::setfill('0') <<
-            ((100000ULL * drained / executed) % 1000) << "%)\n";
-    }
-
-    size_t get_reset_peak()
-    {
-        scoped_lock lock(unm->worker_lock);
-        size_t peak = peak_depth;
-        peak_depth = 0;
-        return peak;
-    }
-
-    void add(T const *item, size_t count, bool allow_notify = true)
-    {
-        scoped_lock lock(unm->worker_lock);
-        //bool notify = queue.empty();
-        for (size_t i = 0; i < count; ++i)
-            queue.emplace_back(item[i]);
-        if (count && (allow_notify ||
-                (queue.size() - count < high_water &&
-                queue.size() >= high_water)))
-            after_add(true);
-    }
-
-    void add(T const& item, bool allow_notify = true)
-    {
-        scoped_lock lock(unm->worker_lock);
-        //bool notify = queue.empty();
-        queue.emplace_back(item);
-        if (allow_notify || queue.size() == high_water)
-            after_add(true);
-    }
-
-    template<typename ...Args>
-    void emplace(bool allow_notify, Args&& ...args)
-    {
-        scoped_lock lock(unm->worker_lock);
-        //bool notify = queue.empty();
-        T &job = queue.emplace_back(std::forward<Args>(args)...);
-        if (allow_notify || queue.size() == high_water)
-            after_add(true);
-    }
-
-    void add(T&& item, bool allow_notify = true)
-    {
-        scoped_lock lock(unm->worker_lock);
-        //bool notify = queue.empty();
-        T &job = queue.emplace_back(std::move(item));
-        if (allow_notify || queue.size() == high_water)
-            after_add(true);
-    }
-
-    void wait_for_idle() const
-    {
-        scoped_lock lock(unm->worker_lock);
-        while (!idle)
-            unm->is_empty->wait(lock);
-    }
-
-    bool is_idle() const
-    {
-        scoped_lock lock(unm->worker_lock);
-        return idle;
-    }
-
-    uint64_t wait_us = 0;
-    uint64_t work_us = 0;
-    uint64_t waits = 0;
-
-private:
-    void after_add(bool notify)
-    {
-        peak_depth = sane_max(peak_depth, queue.size());
-        idle = false;
-        if (notify)
-            unm->not_empty.notify_one();
-    }
-
-    void worker(size_t cpu_nr)
-    {
-        this->cpu_nr = cpu_nr;
-
-        fix_thread_affinity(cpu_nr);
-
-        //time_point st, en;
-
-        scoped_lock lock(unm->worker_lock);
-        for (;;) {
-            if (queue.empty())
-                ++drained;
-
-            while (!done && queue.empty()) {
-                ++waits;
-
-                // st = clk::now();
-                unm->not_empty.wait(lock);
-                // en = clk::now();
-
-                // wait_us += std::chrono::duration_cast<
-                //     std::chrono::microseconds>(en - st).count();
-            }
-
-            if (done)
-                break;
-
-            T &item = queue.front();
-            lock.unlock();
-
-            // st = clk::now();
-            task_handler(worker_nr, item);
-            // en = clk::now();
-
-            // work_us += std::chrono::duration_cast<
-            //     std::chrono::microseconds>(en - st).count();
-
-            lock.lock();
-            queue.pop_front();
-            ++executed;
-
-            if (queue.empty()) {
-                idle = true;
-                unm->is_empty.notify_all();
-            }
-        }
-    }
-
-    size_t worker_nr{-1U};
-    size_t cpu_nr = -size_t(1);
-    F task_handler;
-    std::thread worker_thread;
-
-    // Host the unmovable members
-    struct unmovable {
-        std::mutex worker_lock;
-        std::condition_variable not_empty;
-        std::condition_variable is_empty;
-    };
-    std::unique_ptr<unmovable> unm = std::make_unique<unmovable>();
-
-    std::deque<T> queue;
-
-    // The highest count of items in the queue
-    size_t peak_depth = 0;
-
-    // The number of times it ran out of work and had to wait
-    size_t drained = 0;
-
-    // The number of items executed
-    size_t executed = 0;
-
-    // The queue level where it will notify the queue,
-    // even if the caller said not to notify the queue
-    size_t high_water = 128;
-
-    // This becomes true when it has just
-    // finished an item when the queue is empty
-    bool idle = true;
-
-    // Set to true to make readers give up
-    // instead of waiting when the queue is empty
-    bool done = false;
-};
-
-class barrier {
-public:
-    void arrive_and_expect(int incoming_expect)
-    {
-        assert(incoming_expect > 0);
-        std::unique_lock<std::mutex> lock(barrier_lock);
-        if (count < 0) {
-            count = 0;
-            assert(expect == 0);
-            expect = incoming_expect;
-        } else {
-            assert(expect == incoming_expect);
-        }
-        assert(expect > 0);
-        assert(count >= 0);
-        assert(count < expect);
-        if (++count == expect)
-            all_reached_cond.notify_all();
-    }
-
-    void reset()
-    {
-        std::unique_lock<std::mutex> lock(barrier_lock);
-        count = -1;
-        expect = 0;
-    }
-
-    bool wait_until(std::chrono::high_resolution_clock::time_point const& timeout) const
-    {
-        std::unique_lock<std::mutex> lock(barrier_lock);
-
-        while (count != expect) {
-            std::cv_status wait_status =
-                all_reached_cond.wait_until(lock, timeout);
-
-            if (wait_status == std::cv_status::timeout)
-                break;
-        }
-        return count == expect;
-    }
-
-    bool wait() const
-    {
-        return wait_until(time_point::max());
-    }
-
-private:
-    mutable std::mutex barrier_lock;
-    mutable std::condition_variable all_reached_cond;
-    // Initial wait is instantly done
-    int count = -1;
-    int expect = -1;
-};
-
 static barrier present_barriers[phase_count];
 
 ssize_t find_glyph(int glyph);
 
-struct fill_job {
-    fill_job(frame_param const &fp, barrier *frame_barrier)
-        : fp(fp)
-        , frame_barrier(frame_barrier)
-    {}
 
-    fill_job(frame_param const &fp, int cleared_row, uint32_t color)
-        : fp(fp)
-        , clear_row(cleared_row)
-        , clear_color(color)
-    {}
-
-    fill_job(frame_param const &fp, int y,
-        edgeinfo const& lhs, edgeinfo const& rhs, unsigned back_phase)
-        : fp(fp)
-        , edge_refs(lhs, rhs)
-        , back_phase(back_phase)
-    {
-        box[1] = std::max(int16_t(0),
-            std::min((int16_t)y, (int16_t)INT16_MAX));
-    }
-
-    fill_job(frame_param const& fp, int y,
-            int sx, int sy, int ex, int ey, uint32_t color,
-            std::vector<float> const *border_table)
-        : fp(fp)
-        , clear_color(color)
-        , border_table(border_table)
-        , box_y(y)
-        , box{(int16_t)sx, (int16_t)sy, (int16_t)ex, (int16_t)ey}
-    {}
-
-    fill_job(frame_param const& fp, int y, int sx, int sy,
-            size_t glyph_index, uint32_t color)
-        : fp(fp)
-        , clear_color(color)
-        , glyph_index(glyph_index)
-        , box_y(y)
-        , box{}
-    {
-        glyph_info const& info = glyphs.info[glyph_index];
-        box[0] = (int16_t)sx;
-        box[1] = (int16_t)sy;
-        box[2] = (int16_t)(sx + (info.ex - info.sx));
-        box[3] = (int16_t)(sy + (info.ey - info.sy));
-    }
-
-    frame_param fp;
-    std::pair<edgeinfo, edgeinfo> edge_refs;
-    unsigned back_phase;
-    int clear_row = -1;
-    uint32_t clear_color;
-    barrier *frame_barrier = nullptr;
-    std::vector<float> const *border_table;
-    uint16_t glyph_index = -1;
-    int16_t box_y = -1;
-    int16_t box[4];
-};
-
-template<typename T, size_t log2_bucket_sz = 7>
-class pool
-{
-public:
-    using bucket_shift = std::integral_constant<
-        size_t, log2_bucket_sz>;
-    using bucket_sz = std::integral_constant<
-        size_t, size_t(1) << log2_bucket_sz>;
-    using value_type = T;
-    using size_type = size_t;
-    using difference_type = ptrdiff_t;
-
-    struct pool_item_deleter {
-        pool_item_deleter(pool *owner_) : owner(owner_) {}
-        void operator()(void *p)
-        {
-            owner->recycle(p);
-        }
-        pool *owner{};
-    };
-
-    using item_ptr = std::unique_ptr<T, pool_item_deleter>;
-
-    template<typename ...Args>
-    item_ptr alloc(Args&& ...args)
-    {
-        void *item_memory;
-
-        // Fastpath
-        if (free_list) {
-            item_memory = reinterpret_cast<void*>(free_list);
-            free_slot *next_free = free_list->next;
-            free_list->~free_slot();
-        } else {
-            // Create a bucket if needed
-            if (buckets.empty() ||
-                    buckets.back().bump_alloc == bucket_sz::value) {
-                // Create a bucket
-                buckets.emplace_back();
-                capacity_ += bucket_sz::value;
-            }
-
-            // Take item
-            size_t index = buckets.back().bump_alloc++;
-
-            item_memory = buckets.back().storage[index].data;
-
-        }
-        T *item = new (item_memory) T(std::forward<Args>(args)...);
-
-        ++used_;
-
-        return item_ptr{item, this};
-    }
-
-    void recycle(void *p)
-    {
-        T *item = reinterpret_cast<T*>(p);
-        item->~T();
-        free_slot *slot = new (item) free_slot{};
-        slot->next = free_list;
-        free_list = slot;
-        --used_;
-    }
-
-    size_t capacity() const
-    {
-        return capacity_;
-    }
-
-    size_t avail() const
-    {
-        return capacity_ - used_;
-    }
-
-    size_t used() const
-    {
-        return used_;
-    }
-
-    void reserve(size_t capacity)
-    {
-        if (capacity_ >= capacity)
-            return;
-
-        size_t rounded_capacity = (capacity + (bucket_sz::value - 1)) /
-            bucket_sz::value;
-        while (capacity_ < rounded_capacity) {
-            buckets.emplace_back();
-            capacity_ += bucket_sz::value;
-        }
-    }
-
-    // Try to return some buckets to the OS memory pool
-    // if the usage threshold is below the provided percentage
-    void trim(int threshold_percent)
-    {
-        if (used_ == 0) {
-            buckets.clear();
-            return;
-        }
-
-        if (threshold_percent != 0) {
-            if (used_ * 100 / capacity_ >= threshold_percent)
-                return;
-        }
-
-        using bucket_to_bucket_list_it =
-            std::map<void *, typename bucket_list::iterator>;
-        bucket_to_bucket_list_it bucket_list_its;
-        for (typename bucket_list::iterator it = buckets.begin();
-                it != buckets.end(); ++it)
-            bucket_list_its.emplace(it->storage.data(), it);
-
-        // Walk the free list
-        using free_counts_map =
-            std::map<typename bucket_list::iterator, size_t>;
-        free_counts_map free_counts;
-        for (free_slot *item = free_list; item; item = item->next) {
-            typename bucket_to_bucket_list_it::iterator it =
-                bucket_list_its.lower_bound((void*)item);
-            assert(it != bucket_list_its.end());
-            ++free_counts[it];
-        }
-
-        // Walk the free counts
-        for (typename free_counts_map::iterator it = free_counts.begin();
-                it != free_counts.end(); ++it) {
-            if (it->second == bucket_sz::value)
-                buckets.erase(it->first);
-        }
-    }
-private:
-    struct free_slot {
-        free_slot *next{};
-    };
-
-    using slot = std::aligned_storage_t<
-        std::max(sizeof(T), sizeof(free_slot)),
-        std::max(alignof(T), alignof(free_slot))>;
-
-    using bucket_storage = std::array<slot, bucket_sz::value>;
-
-    struct bucket {
-        size_t bump_alloc{};
-        bucket_storage storage;
-    };
-
-    using bucket_list = std::list<bucket>;
-    bucket_list buckets;
-
-    free_slot *free_list{};
-
-    size_t capacity_{};
-    size_t used_{};
-};
-
-using fill_task_worker = task_worker<fill_job>;
 std::vector<fill_task_worker> task_workers;
 
 std::vector<scanconv_ent> scanconv_scratch;
@@ -699,59 +184,6 @@ void clear_worker(fill_job &job)
         uint32_t *output = job.fp.pixels +
             job.fp.pitch * (y + job.fp.top) + job.fp.left;
         std::fill_n(output, job.fp.width, job.clear_color);
-    }
-}
-
-// Returns ones complement of insertion point if not found
-ssize_t find_glyph(int glyph)
-{
-    // Fastpath ASCII
-    if ((uint32_t)glyph < sizeof(glyphs.ascii) &&
-            glyphs.ascii[(uint32_t)glyph])
-        return glyphs.ascii[glyph];
-
-    size_t st = 0;
-    size_t en = glyphs.n;
-    size_t mx = en;
-    while (st < en) {
-        size_t md = ((en - st) >> 1) + st;
-        int candidate = glyphs.info[md].codepoint;
-        if (candidate < glyph)
-            st = md + 1;
-        else
-            en = md;
-    }
-    st ^= -(st == mx || glyphs.info[st].codepoint != glyph);
-    return ssize_t(st);
-}
-
-uint64_t glyph_bits(int index, int row)
-{
-    glyph_info &info = glyphs.info[index];
-    int pitch = (glyphs.w + 7) >> 3;
-    int x = info.dx;
-    int w = info.ex - info.sx;
-    uint64_t result{};
-    for (int i = 0; i < w; ++i) {
-        int b = x + i;
-        bool bit = glyphs.bits[row * pitch + (b >> 3)] &
-            (1U << (7 - (b & 7)));
-        result |= (bit << (w - i - 1));
-    }
-    return result;
-}
-
-void glyph_worker(fill_job &job)
-{
-    glyph_info const &info = glyphs.info[job.glyph_index];
-    uint64_t data = glyph_bits(job.glyph_index, job.box_y - job.box[1]);
-    uint32_t *pixels = &job.fp.pixels[job.fp.pitch *
-            (job.fp.top + job.box_y) +
-            job.box[0] + job.fp.left];
-    for (size_t bit = info.ex - info.sx, i = 0; data && bit > 0; ++i, --bit) {
-        bool set = data & (1U << (bit - info.sx - 1));
-        uint32_t &pixel = pixels[i];
-        pixel = (job.clear_color & -set) | (pixel & ~-set);
     }
 }
 
@@ -997,9 +429,6 @@ static void fill_worker(size_t worker_nr, fill_job &job)
         assert(!"Clipping messed up");
         return;
     }
-    // work.first.p.w = 1.0f / work.first.p.w;
-    // work.second.p.w = 1.0f / work.second.p.w;
-    // std::cerr << "Scanline at " << y << "\n";
     scaninfo diff = work.second - work.first;
     int pixels = std::abs((int)diff.p.x);
     if (!pixels)
@@ -1166,13 +595,13 @@ bool handle_key_down_event(SDL_KeyboardEvent const& e)
         mouselook_pressed[3] = is_keydown;
         break;
 
-    case SDLK_c:
-        // C key
+    case SDLK_r:
+        // R key
         mouselook_pressed[4] = is_keydown;
         break;
 
-    case SDLK_z:
-        // Z key
+    case SDLK_f:
+        // F key
         mouselook_pressed[5] = is_keydown;
         break;
 
@@ -1283,7 +712,7 @@ void render()
     // fp.left = 75;
     fp.z_buffer = z_buffer;
 
-    user_frame(fp);
+    user_frame(fp);//.subset(42, 33, 420, 420));
 
     // std::cout << "Enqueue barrier at end of phase " << phase << "\n";
     //time_point qbarrier_st = clk::now();
@@ -1496,7 +925,7 @@ int main(int argc, char const * const * argv)
     if (!initSDL(SCREEN_WIDTH, SCREEN_HEIGHT))
         return 1;
 
-    glyphs = text_init(24);
+    text_init(24);
 
     if (setup(SCREEN_WIDTH, SCREEN_HEIGHT))
         return EXIT_FAILURE;
@@ -1815,9 +1244,15 @@ static glm::mat4 combined_xform;
 std::vector<glm::mat4> view_mtx_stk{1};
 std::vector<glm::mat4> proj_mtx_stk{1};
 
-void set_transform(glm::mat4 const& mat)
+void set_transform(glm::mat4 const& proj_mtx,
+    glm::mat4 const& view_mtx)
 {
-    combined_xform = mat;
+    glm::mat4 vmt = view_mtx;
+    //glm::transpose(vmt);
+    mouselook_px = glm::vec3{vmt[0]};
+    mouselook_py = glm::vec3{vmt[1]};
+    mouselook_pz = glm::vec3{vmt[2]};
+    combined_xform = proj_mtx * view_mtx;
 }
 
 static std::vector<scaninfo> vinp_scratch;
@@ -2008,174 +1443,6 @@ void parallel_clear(frame_param const &frame, uint32_t color)
              frame, slot, color);
 }
 
-// Convert the given range of UTF-8 to UCS32
-std::vector<char32_t> ucs32(char const *start, char const *end,
-    bool *ret_failed = nullptr)
-{
-    if (ret_failed)
-        *ret_failed = false;
-    uint8_t const *st = (uint8_t const *)start;
-    uint8_t const *en = (uint8_t const *)end;
-    std::vector<char32_t> result;
-    char32_t unicode_replacement = (char32_t)0xfffd;
-
-    while (st < en) {
-        if (*st < 0x80) {
-            result.push_back(*st++);
-        } else if ((*st & 0xe0) == 0xc0 &&
-                st + 1 < en &&
-                (st[0] & 0x1f) != 0 &&
-                ((st[1] & 0xc0) == 0x80)) {
-            // 2-byte
-            result.push_back(((st[0] & 0x1f) << 6) |
-                (st[1] & 0x3f));
-            st += 2;
-        } else if ((st[0] & 0xf0) == 0xe0 &&
-                st + 2 < en &&
-                (st[0] & 0x0F) != 0 &&
-                (st[1] & 0xc0) == 0x80 &&
-                (st[2] & 0xc0) == 0x80) {
-            // 3-byte
-            char32_t codepoint = ((st[0] & 0xf) << 12) |
-                ((st[1] & 0x3F) << 6) |
-                ((st[2] & 0x3F));
-            // check for sneaky surrogate pair
-            codepoint = (codepoint >= 0xD800 && codepoint <= 0xDFFF)
-                ? unicode_replacement
-                : codepoint;
-            result.push_back(codepoint);
-            st += 3;
-        } else if ((st[0] & 0xf8) == 0xf0 &&
-                st + 3 < en &&
-                (st[0] & 0x07) != 0 &&
-                (st[1] & 0xc0) == 0x80 &&
-                (st[2] & 0xc0) == 0x80 &&
-                (st[3] & 0xc0) == 0x80) {
-            // 4-byte
-            result.push_back(((*st & 0x7) << 18) |
-                ((st[1] & 0x3F) << 12) |
-                ((st[2] & 0x3F) << 6) |
-                ((st[3] & 0x3F)));
-            st += 4;
-        } else {
-            result.push_back(unicode_replacement);
-            while (st < en && st[0] & 0x80)
-                ++st;
-            if (ret_failed)
-                *ret_failed = true;
-        }
-    }
-
-    return result;
-}
-
-__attribute__((__format__(printf, 5, 0)))
-bool format_text_v(frame_param const& frame,
-    int x, int y, uint32_t color,
-    char const *format, va_list ap)
-{
-    va_list ap2;
-    va_copy(ap2, ap);
-    int len = vsnprintf(nullptr, 0, format, ap);
-    if (len < 0)
-        return false;
-    std::vector<char> buffer(len + 1);
-    int len2 = vsnprintf(buffer.data(), buffer.size(), format, ap2);
-    va_end(ap2);
-    bool ok = len == len2;
-    if (len && ok) {
-        draw_text(frame, x, y, buffer.data(),
-            buffer.data() + buffer.size(), 0, color);
-    }
-    return ok;
-}
-
-__attribute__((__format__(printf, 5, 6)))
-bool format_text(frame_param const& frame,
-    int x, int y, uint32_t color,
-    char const *format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-    bool result = format_text_v(frame, x, y, color, format, ap);
-    va_end(ap);
-    return result;
-}
-
-void draw_text(frame_param const& frame, int x, int y,
-    char32_t const *text_st, char32_t const *text_en,
-    int wrap_col, uint32_t color)
-{
-    ensure_scratch(frame.height);
-
-    // Decompose into lines and recurse
-    if (wrap_col > 0) {
-        while (text_st < text_en) {
-            char32_t const *first_newline = std::find(
-                text_st, sane_min(text_st + wrap_col, text_en), L'\n');
-            if (first_newline == text_en)
-                first_newline = sane_min(text_en, text_st + wrap_col);
-            size_t line_length = first_newline - text_st;
-            draw_text(frame, x, y, text_st, text_st + line_length, -1, color);
-            y += glyphs.h;
-            text_st += line_length + (text_st + line_length < text_en &&
-                text_st[line_length] == '\n');
-        }
-        return;
-    }
-
-    // ... render one line
-
-    // Bail out if it is obviously offscreen
-    if (y + glyphs.h < 0 || y >= frame.height || x >= frame.width)
-    {
-        return;
-    }
-
-    int orig_x = x;
-
-    glyph_info *info{};
-
-    for ( ; text_st < text_en; ++text_st, orig_x += info ? info->advance : 0) {
-        char32_t character = *text_st;
-        size_t glyph_index = find_glyph(character);
-        if ((ssize_t)glyph_index < 0)
-            continue;
-        info = &glyphs.info[glyph_index];
-        x = orig_x;
-
-        for (int dy = y, ey = dy + glyphs.h;
-                dy < ey && dy < frame.height; ++dy) {
-            if (x + (info->ex - info->sx) > 0 &&
-                    x < frame.width && y + glyphs.h >= 0) {
-                size_t slot = dy % task_workers.size();
-                fill_job_batches[slot].emplace_back(
-                    frame, dy, x, y, glyph_index, color);
-            }
-        }
-    }
-
-    for (size_t slot = 0; slot < task_workers.size(); ++slot) {
-        task_workers[slot].add(fill_job_batches[slot].data(),
-            fill_job_batches[slot].size(), false);
-        fill_job_batches[slot].clear();
-    }
-}
-
-void draw_text(frame_param const& frame, int x, int y,
-    char const *utf8_st, char const *utf8_en,
-    int wrap_col, uint32_t color)
-{
-    if (!utf8_en)
-        utf8_en = strchr(utf8_st, 0);
-
-    std::vector<char32_t> codepoints = ucs32(utf8_st, utf8_en);
-    char32_t const *text_st = codepoints.data();
-    char32_t const *text_en = text_st + codepoints.size();
-
-    draw_text(frame, x, y, text_st, text_en, wrap_col, color);
-}
-
 void print_matrix(char const *title, std::ostream &out, glm::mat4 const& pm)
 {
     out << title << "=[" <<
@@ -2184,173 +1451,6 @@ void print_matrix(char const *title, std::ostream &out, glm::mat4 const& pm)
         '['<<pm[0][2]<<','<<pm[1][2]<<','<<pm[2][2]<<','<<pm[3][2]<<"],\n" <<
         '['<<pm[0][3]<<','<<pm[1][3]<<','<<pm[2][3]<<','<<pm[3][3]<<"]\n"
         "]\n";
-}
-
-std::string stringify_glyph(SDL_Surface *surface)
-{
-    std::string s;
-    s = "[\n";
-    for (int y = 0; y < surface->h; ++y) {
-        for (int x = 0; x < surface->w; ++x) {
-            uint8_t *pixels = reinterpret_cast<uint8_t*>(surface->pixels);
-            uint8_t pixel = pixels[surface->pitch * y + x];
-            s.push_back(pixel ? '*' : ':');
-        }
-        s += L'\n';
-    }
-    s += "]\n";
-    return s;
-}
-
-
-std::ostream &dump_debug_glyph(std::ostream &out, int ch, SDL_Surface *surface)
-{
-    return out << stringify_glyph(surface) << '\n';
-}
-
-font_data text_init(int size, int first_cp, int last_cp)
-{
-    font_data data;
-
-    if (TTF_Init() != 0)
-        return data;
-
-    char const *font_name = "Ephesis-Regular.ttf";
-    // char const *font_name = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/tlwg/Purisa-BoldOblique.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/freefont/FreeMono.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/tlwg/TlwgMono.ttf";
-
-    // Key is what they look like, value is {sx, width}
-    using appearance_map = std::unordered_map<
-        std::string, std::pair<int, int>>;
-    appearance_map pos_by_appearance;
-
-    std::vector<int> deduped_codepoints;
-
-    TTF_Font *font = TTF_OpenFont(font_name, size);
-
-    if (!font)
-        return data;
-
-    using glyph_map = std::vector<std::pair<int, glyph_info>>;
-    glyph_map char_lookup;
-
-    int height = TTF_FontHeight(font);
-
-    // Measure and render every glyph in the range,
-    // and tolerate ones that fail
-    int x = 0;
-    for (int ch = first_cp; ch <= last_cp; ++ch) {
-        int minx{}, miny{}, maxx{}, maxy{}, advance{};
-        if (TTF_GlyphMetrics(font, ch, &minx, &maxx,
-                &miny, &maxy, &advance))
-            continue;
-
-        // note that sx,ex and sy,ey are half open from here on
-        SDL_Surface *glyph = TTF_RenderGlyph_Solid(
-            font, ch, {0xFF, 0xFF, 0xFF, 0xFF});
-        if (!glyph)
-            continue;
-
-        glyph_info info;
-        // int glyph_w = (maxx - minx) + 1;
-        info.codepoint = ch;
-        info.advance = advance;
-        info.dx = x;
-        info.dw = glyph->w;
-        info.sx = minx;
-        info.ex = maxx + 1;
-        info.sy = miny;
-        info.ey = maxy + 1;
-        std::pair<appearance_map::iterator, bool> ins =
-            pos_by_appearance.emplace(stringify_glyph(glyph),
-                std::make_pair(x, glyph->w));
-
-        if (ins.second) {
-            x += glyph->w;
-            deduped_codepoints.push_back(ch);
-            dump_debug_glyph(std::cerr, ch, glyph);
-        } else {
-            // This glyph looks identical to another glyph, don't need dup
-            SDL_FreeSurface(glyph);
-            glyph = nullptr;
-        }
-
-        info.surface = glyph;
-        char_lookup.emplace_back(ch, info);
-    }
-    int total_width = x;
-
-    TTF_CloseFont(font);
-    font = nullptr;
-
-    if (char_lookup.empty())
-        return data;
-
-    // Use the first surface as a reference
-
-    // Main metadata
-    data.w = total_width;
-    data.h = height;
-    data.n = char_lookup.size();
-
-    // Compute multiplier for indexing into scanlines of the bitmap
-    int bitmap_pitch = (total_width + 7) >> 3;
-
-    // Allocate array for corresponding glyphs codepoints
-    data.info = std::make_unique<glyph_info[]>(data.n);
-    size_t i = 0;
-    for (glyph_map::value_type const &item : char_lookup)
-        data.info[i++] = item.second;
-    assert(i == data.n);
-
-    // Precompute ASCII indices
-    std::fill(std::begin(data.ascii), std::end(data.ascii), 0);
-    for (size_t i = 0; i < sizeof(data.ascii); ++i) {
-        int codepoint = data.info[i].codepoint;
-        if ((uint32_t)codepoint < sizeof(data.ascii))
-            data.ascii[codepoint] = i;
-    }
-
-    // Size of bitmap is bitmap pitch times height
-    size_t bitmap_bits_size = bitmap_pitch * data.h;
-    // Allocate and clear bitmap
-    data.bits = std::make_unique<uint8_t[]>(bitmap_bits_size);
-    std::fill_n(data.bits.get(), bitmap_bits_size, 0);
-    for (int codepoint : deduped_codepoints) {
-        glyph_map::value_type example{codepoint, {}};
-        glyph_map::value_type &item = *std::lower_bound(
-            char_lookup.begin(), char_lookup.end(), example,
-            [](glyph_map::value_type const& lhs,
-                    glyph_map::value_type const& rhs) {
-                return lhs.first < rhs.first;
-            });
-        glyph_info& info = item.second;
-        SDL_Surface *surface = info.surface;
-        assert(surface != nullptr);
-        int dx = info.dx;
-
-        //std::cerr << "Getting bits for codepoint " << item.first << '\n';
-
-        uint8_t const *p = static_cast<uint8_t const *>(surface->pixels);
-        for (int y = 0; y < surface->h && y < height; ++y) {
-            for (int x = 0; x < surface->w; ++x) {
-                uint8_t input = p[surface->pitch * y + x];
-                int bx = dx + x;
-                uint8_t *b = data.bits.get() + y * bitmap_pitch + (bx >> 3);
-                *b |= uint8_t(input != 0) << (7 - (bx & 7));
-            }
-        }
-
-        SDL_FreeSurface(surface);
-        info.surface = nullptr;
-    }
-
-    return data;
 }
 
 size_t hash_bytes(void const *data, size_t size)

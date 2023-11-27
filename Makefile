@@ -59,7 +59,8 @@ endif
 
 CXXFLAGS += -MMD
 
-OBJS := pool.o funsdl.o funrender.o affinity.o stb_image_impl.o
+OBJS := pool.o funsdl.o funrender.o affinity.o \
+	stb_image_impl.o text.o objmodel.o
 
 all: funrender
 

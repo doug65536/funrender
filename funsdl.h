@@ -4,52 +4,74 @@
 #include <vector>
 #include <string>
 #include <cmath>
+#include <vector>
 #include <memory>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <SDL.h>
+struct fill_job;
+
+void ensure_scratch(size_t height);
+extern std::vector<std::vector<fill_job>> fill_job_batches;
+
+
+#include "task_worker.h"
+#include "text.h"
 
 extern uint64_t last_fps, smooth_fps;
 
 struct frame_param {
-    uint16_t width{};
-    uint16_t height{};
-    uint16_t left{};
-    uint16_t top{};
-    uint16_t pitch{};
+    int width{};
+    int height{};
+    int pitch{};
+    int left{};
+    int top{};
     // alignment gap here
     unsigned *pixels{};
     float *z_buffer{};
+
+    frame_param() = default;
+
+    frame_param(int width_, int height_, int pitch_,
+            uint32_t *pixels_, float *z_buffer_,
+            int left_ = 0, int top_ = 0)
+        : width(width_)
+        , height(height_)
+        , pitch(pitch_)
+        , left(left_)
+        , top(top_)
+        , pixels(pixels_)
+        , z_buffer(z_buffer_)
+    {
+    }
+
+    frame_param(frame_param const&) = default;
+    frame_param(frame_param&&) = default;
+
+    frame_param subset(int left_, int top_, int width_, int height_)
+    {
+        frame_param proposed{
+            width_,
+            height_,
+            pitch,
+            pixels,
+            z_buffer,
+            left + left_,
+            top + top_
+        };
+
+        proposed.left = std::min(proposed.left, width);
+        proposed.top = std::min(proposed.top, height);
+        proposed.width = std::min(width, proposed.width - proposed.left);
+        proposed.height = std::min(height, proposed.height - proposed.top);
+
+        return proposed;
+    }
 };
 
 extern std::vector<glm::mat4> view_mtx_stk;
 extern std::vector<glm::mat4> proj_mtx_stk;
 
-
-using clk = std::chrono::high_resolution_clock;
-using time_point = typename clk::time_point;
-using duration = typename clk::duration;
-
-struct glyph_info {
-    int codepoint{};
-    int advance{};
-    int dx{};
-    int dw{};
-    int sx{};
-    int ex{};
-    int sy{};
-    int ey{};
-    SDL_Surface *surface{};
-};
-
-struct font_data {
-    int w{};
-    int h{};
-    int n{};
-    std::unique_ptr<glyph_info[]> info;
-    std::unique_ptr<uint8_t[]> bits;
-    uint8_t ascii[128];
-};
 
 struct scaninfo {
     glm::vec2 t;
@@ -255,9 +277,10 @@ void texture_elements(frame_param const &fp,
     scaninfo const *vertices, size_t vertex_count,
     uint32_t const *elements, size_t element_count);
 
-void set_transform(glm::mat4 const& mat);
+void set_transform(glm::mat4 const& pm,
+    glm::mat4 const& vm);
 
-extern bool mouselook_pressed[]; // WASDCZ
+extern bool mouselook_pressed[]; // WASDRF
 extern float mouselook_yaw;
 extern float mouselook_pitch;
 extern float mouselook_yaw_scale;
@@ -268,5 +291,73 @@ extern glm::vec3 mouselook_acc;
 extern glm::vec3 mouselook_nz;
 extern glm::vec3 mouselook_px;
 extern glm::vec3 mouselook_py;
+extern glm::vec3 mouselook_pz;
 
 extern std::vector<std::string> command_line_files;
+
+#pragma once
+
+#include "barrier.h"
+#include "text.h"
+
+struct fill_job {
+    fill_job(frame_param const &fp, barrier *frame_barrier)
+        : fp(fp)
+        , frame_barrier(frame_barrier)
+    {}
+
+    fill_job(frame_param const &fp, int cleared_row, uint32_t color)
+        : fp(fp)
+        , clear_row(cleared_row)
+        , clear_color(color)
+    {}
+
+    fill_job(frame_param const &fp, int y,
+        edgeinfo const& lhs, edgeinfo const& rhs, unsigned back_phase)
+        : fp(fp)
+        , edge_refs(lhs, rhs)
+        , back_phase(back_phase)
+    {
+        box[1] = std::max(int16_t(0),
+            std::min((int16_t)y, (int16_t)INT16_MAX));
+    }
+
+    fill_job(frame_param const& fp, int y,
+            int sx, int sy, int ex, int ey, uint32_t color,
+            std::vector<float> const *border_table)
+        : fp(fp)
+        , clear_color(color)
+        , border_table(border_table)
+        , box_y(y)
+        , box{(int16_t)sx, (int16_t)sy, (int16_t)ex, (int16_t)ey}
+    {}
+
+    fill_job(frame_param const& fp, int y, int sx, int sy,
+            size_t glyph_index, uint32_t color)
+        : fp(fp)
+        , clear_color(color)
+        , glyph_index(glyph_index)
+        , box_y(y)
+        , box{}
+    {
+        glyph_info const& info = glyphs.info[glyph_index];
+        box[0] = (int16_t)sx;
+        box[1] = (int16_t)sy;
+        box[2] = (int16_t)(sx + (info.ex - info.sx));
+        box[3] = (int16_t)(sy + (info.ey - info.sy));
+    }
+
+    frame_param fp;
+    std::pair<edgeinfo, edgeinfo> edge_refs;
+    unsigned back_phase;
+    int clear_row = -1;
+    uint32_t clear_color;
+    barrier *frame_barrier = nullptr;
+    std::vector<float> const *border_table;
+    uint16_t glyph_index = -1;
+    int16_t box_y = -1;
+    int16_t box[4];
+};
+
+using fill_task_worker = task_worker<fill_job>;
+extern std::vector<fill_task_worker> task_workers;
