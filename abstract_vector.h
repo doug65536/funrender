@@ -480,18 +480,18 @@ static inline vecf32x4 vec_blend(
 // 128-bit gather
 __attribute__((__always_inline__))
 static inline vecu32x4 vec_gather(uint32_t const *buffer,
-    vecu32x4 indexes, vecu32x4 background, vecu32x4 mask)
+    vecu32x4 indices, vecu32x4 background, vecu32x4 mask)
 {
 #if GATHER_IS_GOOD && defined(__AVX2__)
     vecu32x4 result = (vecu32x4)_mm_mask_i32gather_epi32(
         (__m128i)background, (int const*)buffer,
-        (__m128i)indexes, (__m128i)mask, sizeof(uint32_t));
+        (__m128i)indices, (__m128i)mask, sizeof(uint32_t));
 #elif 1
     vecu32x4 result{
-        buffer[indexes[0]],
-        buffer[indexes[1]],
-        buffer[indexes[2]],
-        buffer[indexes[3]]
+        buffer[indices[0]],
+        buffer[indices[1]],
+        buffer[indices[2]],
+        buffer[indices[3]]
     };
     result = vec_blend(background, result, mask);
 #endif
@@ -501,22 +501,22 @@ static inline vecu32x4 vec_gather(uint32_t const *buffer,
 // 256-bit gather
 __attribute__((__always_inline__))
 static inline vecu32x8 vec_gather(uint32_t const *buffer,
-    vecu32x8 indexes, vecu32x8 background, vecu32x8 mask)
+    vecu32x8 indices, vecu32x8 background, vecu32x8 mask)
 {
 #if GATHER_IS_GOOD && defined(__AVX2__)
     vecu32x8 result = (vecu32x8)_mm256_mask_i32gather_epi32(
         (__m256i)background, (int const*)buffer,
-        (__m256i)indexes, (__m256i)mask, sizeof(uint32_t));
+        (__m256i)indices, (__m256i)mask, sizeof(uint32_t));
 #else
     vecu32x8 result{
-        buffer[indexes[0]],
-        buffer[indexes[1]],
-        buffer[indexes[2]],
-        buffer[indexes[3]],
-        buffer[indexes[4]],
-        buffer[indexes[5]],
-        buffer[indexes[6]],
-        buffer[indexes[7]]
+        buffer[indices[0]],
+        buffer[indices[1]],
+        buffer[indices[2]],
+        buffer[indices[3]],
+        buffer[indices[4]],
+        buffer[indices[5]],
+        buffer[indices[6]],
+        buffer[indices[7]]
     };
     result = vec_blend(background, result, mask);
 #endif
@@ -526,7 +526,7 @@ static inline vecu32x8 vec_gather(uint32_t const *buffer,
 // 512-bit gather
 __attribute__((__always_inline__))
 static inline vecu32x16 vec_gather(uint32_t const *buffer,
-    vecu32x16 indexes, vecu32x16 background, vecu32x16 mask)
+    vecu32x16 indices, vecu32x16 background, vecu32x16 mask)
 {
 #if GATHER_IS_GOOD && defined(__AVX512F__)
     __mmask8 compact_mask = _mm512_test_epi32_mask(
@@ -534,37 +534,37 @@ static inline vecu32x16 vec_gather(uint32_t const *buffer,
     vecu32x16 result = (vecu32x16)_mm512_mask_i32gather_epi32(
         background,
         (int const *)texture->pixels,
-        (__m512i)indexes,
+        (__m512i)indices,
         compact_mask,
         sizeof(uint32_t));
 #elif GATHER_IS_GOOD && defined(__AVX2__)
     // Pair of 256 bit operations
     vecu32x8 lo = (vecu32x8)_mm256_mask_i32gather_epi32(
         (__m256i)vec_lo(background), (int const*)buffer,
-        (__m256i)vec_lo(indexes), (__m256i)vec_lo(mask), sizeof(uint32_t));
+        (__m256i)vec_lo(indices), (__m256i)vec_lo(mask), sizeof(uint32_t));
     vecu32x8 hi = (vecu32x8)_mm256_mask_i32gather_epi32(
         (__m256i)vec_hi(background), (int const*)buffer,
-        (__m256i)vec_hi(indexes), (__m256i)vec_hi(mask), sizeof(uint32_t));
+        (__m256i)vec_hi(indices), (__m256i)vec_hi(mask), sizeof(uint32_t));
     vecu32x16 result = vec_combine(lo, hi);
 #else
     // Generic
     vecu32x16 result{
-        buffer[indexes[0]],
-        buffer[indexes[1]],
-        buffer[indexes[2]],
-        buffer[indexes[3]],
-        buffer[indexes[4]],
-        buffer[indexes[5]],
-        buffer[indexes[6]],
-        buffer[indexes[7]],
-        buffer[indexes[8]],
-        buffer[indexes[9]],
-        buffer[indexes[10]],
-        buffer[indexes[11]],
-        buffer[indexes[12]],
-        buffer[indexes[13]],
-        buffer[indexes[14]],
-        buffer[indexes[15]]
+        buffer[indices[0]],
+        buffer[indices[1]],
+        buffer[indices[2]],
+        buffer[indices[3]],
+        buffer[indices[4]],
+        buffer[indices[5]],
+        buffer[indices[6]],
+        buffer[indices[7]],
+        buffer[indices[8]],
+        buffer[indices[9]],
+        buffer[indices[10]],
+        buffer[indices[11]],
+        buffer[indices[12]],
+        buffer[indices[13]],
+        buffer[indices[14]],
+        buffer[indices[15]]
     };
     result = vec_blend(background, result, mask);
 #endif

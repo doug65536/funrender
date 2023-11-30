@@ -4,3 +4,8 @@ funrender
 perf.data
 perf.data.old
 gmon.out
+*.gcda
+*.gcno
+*.profraw
+*.profdata
+*.log

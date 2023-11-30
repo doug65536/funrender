@@ -1,6 +1,16 @@
 
 -include config.mk
 
+# TC__PROGRAMS =
+
+# # $(1) name
+# # $(2) prefix
+# define add_toolchain=
+# TC_$(1)_PREFIX=$(2)
+# TC_$(1)_
+# endef
+
+
 PROGRAM = ./funrender
 
 HOST ?=
@@ -14,11 +24,13 @@ SETCAP ?= setcap
 
 CPU_COUNT := $(shell $(NPROC))
 
-
 ifeq ($(ARCH),x86_64)
 CXXFLAGS += -DARCH_X86_64
-VECFLAGS = -mtune=znver2 -mavx -mavx2 -mfma -mbmi -mbmi2 \
-	-DHAVE_HUGEPAGES=1 -DHAVE_VEC256=1
+#VECFLAGS = -DHAVE_HUGEPAGES=1
+VECFLAGS += -mtune=znver2 -mavx -mavx2 -mfma -mbmi -mbmi2 \
+	-DHAVE_HUGEPAGES=1
+#VECFLAGS = -DHAVE_VEC128=1
+VECFLAGS += -DHAVE_VEC256=1
 else ifeq ($(ARCH),aarch64)
 CXXFLAGS += -DARCH_AARCH64
 VECFLAGS = -march=armv8-a -mcpu=cortex-a72 -DHAVE_VEC128=1
@@ -27,9 +39,11 @@ $(error Unknown architecture)
 endif
 
 ORIG_CXXFLAGS := $(CXXFLAGS)
-CXXFLAGS := -Wall -std=c++17 -g $(ORIG_CXXFLAGS) \
+CXXFLAGS := -Wall -std=c++17 -g \
+	$(ORIG_CXXFLAGS) \
 	-Werror=return-type -pthread \
-	$(VECFLAGS) -ffast-math -fno-plt
+	-ffast-math -fno-plt \
+	$(VECFLAGS)
 
 
 #=$(CPU_COUNT)
@@ -48,19 +62,23 @@ else
 CXXFLAGS += -O0
 endif
 
-ifneq ($(GPROF),)
-CXXFLAGS += -pg
-endif
-
+ifneq ($(GPROF_PROFILE_HEAVY),)
+$(info Building for extreme profiling)
+#CXXFLAGS += -pg -fprofile-arcs -ftest-coverage -fprofile-instr-generate
+CXXFLAGS += -pg -fprofile-instr-generate -fcoverage-mapping
+else
 ifneq ($(GPROF_PROFILE),)
-$(info Building for profiling)
+$(info Building for light profiling)
 CXXFLAGS += -pg
+else
+$(info No profiling option)
+endif
 endif
 
 CXXFLAGS += -MMD
 
 OBJS := pool.o funsdl.o funrender.o affinity.o \
-	stb_image_impl.o text.o objmodel.o
+	stb_image_impl.o text.o objmodel.o 3ds.o cpu_usage.o
 
 all: funrender
 

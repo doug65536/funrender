@@ -38,12 +38,12 @@ std::vector<char32_t> ucs32(char const *start, char const *end,
 struct frame_param;
 #include "funsdl.h"
 
-__attribute__((__format__(printf, 5, 6)))
-bool format_text(frame_param const& frame,
-    int x, int y, uint32_t color,
+__attribute__((__format__(printf, 6, 7)))
+void format_text(frame_param const& frame,
+    int x, int y, float z, uint32_t color,
     char const *format, ...);
 
-__attribute__((__format__(printf, 5, 0)))
-bool format_text_v(frame_param const& frame,
-    int x, int y, uint32_t color,
+__attribute__((__format__(printf, 6, 0)))
+void format_text_v(frame_param const& frame,
+    int x, int y, float z, uint32_t color,
     char const *format, va_list ap);

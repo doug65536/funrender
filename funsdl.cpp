@@ -30,19 +30,6 @@
 static int blit_to_screen(SDL_Surface *surface, SDL_Rect &src,
     SDL_Surface *window_surface, SDL_Rect &dest);
 
-//  7: 0 blue
-// 15: 8 green
-// 23:16 blue
-// 31:24 alpha
-
-// packed RGBA conversion readability utilities
-#define rgba(r,g,b,a)       ((b) | ((g) << 8) | ((r) << 16) | ((a) << 24))
-#define rgb0(r,g,b)         (rgba((r), (g), (b), 0))
-#define rgb(r,g,b)          (rgba((r), (g), (b), 0xff))
-#define rgb_a(pixel)        (((pixel)>>24)&0xFF)
-#define rgb_r(pixel)        (((pixel)>>16)&0xFF)
-#define rgb_g(pixel)        (((pixel)>>8)&0xFF)
-#define rgb_b(pixel)        (((pixel))&0xFF)
 
 uint64_t last_fps;
 uint64_t smooth_fps;
@@ -162,6 +149,7 @@ struct texture_info {
     float fw{}, fh{};
     unsigned iw{}, ih{}, pitch{};
     void (*free_fn)(void*) = nullptr;
+    unsigned mipmap_levels;
 };
 
 using scoped_lock = std::unique_lock<std::mutex>;
@@ -190,9 +178,11 @@ void clear_worker(fill_job &job)
 template<typename T>
 void box_worker(fill_job &job)
 {
+    using D = typename vecinfo_t<T>::as_float;
+    size_t pixel_index = (job.box_y + job.fp.top) * job.fp.pitch;
     // Set up to process this scanline
-    uint32_t *pixel = job.fp.pixels +
-        (job.box_y + job.fp.top) * job.fp.pitch;
+    uint32_t *pixels = job.fp.pixels + pixel_index;
+    float *depths = job.fp.z_buffer + pixel_index;
 
     // Set up to mask off an 8-bit red green blue or alpha
     T constexpr bytemask = vecinfo_t<T>::vec_broadcast(0xFFU);
@@ -251,7 +241,16 @@ void box_worker(fill_job &job)
             int(vecinfo_t<T>::sz), ex - x)];
 
         // Save a backup in case we do the mask operation in the last loop
-        T const backup = *(T*)(pixel + x);
+        T const backup = *(T*)(pixels + x);
+
+        D depth_data = *(D*)(depths + x);
+        D z_vec = vecinfo_t<D>::vec_broadcast(job.z);
+        mask &= z_vec < depth_data;
+
+        // no writeback though, because it is transparent
+        // depth_data = vec_blend(depth_data, z_vec, mask);
+        // *(D*)(depths + x) = depth_data;
+
         // Extract the red green and blue so we can blend them separately
         T dr = (backup >> 16) & bytemask;
         T dg = (backup >> 8) & bytemask;
@@ -289,13 +288,13 @@ void box_worker(fill_job &job)
         // At boundary conditions with 0's in mask, restore pixels from backup
         db = vec_blend(backup, db, mask); // (db & mask) | (backup & ~mask);
         // Write back
-        *(T*)(pixel + x) = db;
+        *(T*)(pixels + x) = db;
     }
 }
 
 template<typename T>
 void fill_mainloop(fill_job &job,
-    std::pair<scaninfo, scaninfo> const& work, scaninfo const& diff,
+    std::pair<scaninfo, scaninfo> const& work, scaninfo diff,
     float invWidth, int i, float n, int x, int y, int pixels)
 {
     using F = typename vecinfo_t<T>::as_float;
@@ -303,6 +302,15 @@ void fill_mainloop(fill_job &job,
 
     constexpr size_t vec_sz = vecinfo_t<T>::sz;
     constexpr size_t vec_mask = vecinfo_t<T>::sz - 1;
+
+    size_t mipmap_level = select_mipmap(diff.t * diff.p.x);
+    size_t mipmap_offset = indexof_mipmap(mipmap_level);
+    uint32_t const *texture_pixels = texture->pixels + mipmap_offset;
+    int texture_w = texture->iw >> mipmap_level;
+    int texture_h = texture->ih >> mipmap_level;
+    float texture_fw = texture_w;
+    float texture_fh = texture_h;
+    diff.t *= (1.0f / (1 << mipmap_level));
 
     // Adjust by viewport before alignment
     x += job.fp.left;
@@ -321,58 +329,58 @@ void fill_mainloop(fill_job &job,
     uint32_t *pixel_io = job.fp.pixels + pixel_index;
     float *depth_io = job.fp.z_buffer + pixel_index;
 
+    assert((uintptr_t)pixel_io == ((uintptr_t)pixel_io & -vec_sz));
+    assert((uintptr_t)depth_io == ((uintptr_t)depth_io & -vec_sz));
+
     F n_vec = invWidth * vecinfo_t<F>::laneoffs + n;
     for ( ; i < pixels; i += vec_sz, x += vec_sz,
             mask = vecinfo_t<T>::lanemask[vec_sz]) {
         mask &= vecinfo_t<T>::lanemask[sane_min(int(vec_sz), pixels - i)];
 
-        // Linear interpolate the u/w and v/w
-        F v_vec = (n_vec * diff.t.t) + work.first.t.t;
-        F u_vec = (n_vec * diff.t.s) + work.first.t.s;
-
-        // Linear interpolate 1/w for perspective correction
-        F w_vec = (n_vec * diff.p.w) + work.first.p.w;
-
         // Linear interpolate z for depth buffering
         F z_vec = (n_vec * diff.p.z) + work.first.p.z;
-
-        // Step to next {vec_sz} pixels
-        n_vec += n_step;
-
-        // Perspective correction
-        v_vec /= w_vec;
-        u_vec /= w_vec;
-
-        // Scale by texture width and height
-        v_vec *= texture->fh;
-        u_vec *= texture->fw;
-
-        // Convert coordinates to integers
-        T ty_vec = __builtin_convertvector(v_vec, T);
-        T tx_vec = __builtin_convertvector(u_vec, T);
-
-        // Wrap coordinates to within texture size
-        ty_vec &= texture->ih-1;
-        tx_vec &= texture->iw-1;
 
         // Fetch z-buffer values (to see if new pixels are closer)
         F depths = *(F*)depth_io; // _mm256_load_ps(depth_io);
 
-        // Compute pixel offset within texture
-        T tex_off = (ty_vec * texture->iw) + tx_vec;
-
         // Only write pixels that are closer
         mask &= (T)(z_vec < depths);
 
-        // // Only write pixels that are in front of you
-        // clipping works mask &= z_vec >= 0.0f;
+        // Step to next {vec_sz} pixels
+        n_vec += n_step;
 
         if (vec_movemask(mask)) {
+            // Linear interpolate the u/w and v/w
+            F v_vec = (n_vec * diff.t.t) + work.first.t.t;
+            F u_vec = (n_vec * diff.t.s) + work.first.t.s;
+
+            // Linear interpolate 1/w for perspective correction
+            F w_vec = (n_vec * diff.p.w) + work.first.p.w;
+
+            // Perspective correction
+            v_vec /= w_vec;
+            u_vec /= w_vec;
+
+            // Scale by texture width and height
+            v_vec *= texture_fh;//texture->fh;
+            u_vec *= texture_fw;//texture->fw;
+
+            // Convert coordinates to integers
+            T ty_vec = __builtin_convertvector(v_vec, T);
+            T tx_vec = __builtin_convertvector(u_vec, T);
+
+            // Wrap coordinates to within texture size
+            ty_vec &= (texture_h-1);//texture->ih-1;
+            tx_vec &= (texture_w-1);//texture->iw-1;
+
+            // Compute pixel offset within texture
+            T tex_off = (ty_vec * texture->iw) + tx_vec;
+
             // Fetch existing pixels for masked merge with new pixels
             T upd_pixels = *(T*)pixel_io;
 
-            // Fetch {vec_sz} texels with those {vec_sz} array indexes
-            T texels = vec_gather(texture->pixels, tex_off, upd_pixels, mask);
+            // Fetch {vec_sz} texels with those {vec_sz} array indices
+            T texels = vec_gather(texture_pixels, tex_off, upd_pixels, mask);
 
             *(T*)pixel_io = texels;
 
@@ -388,7 +396,7 @@ void fill_mainloop(fill_job &job,
 
 using mainloop_pfn = void(*)(
     fill_job &job, std::pair<scaninfo, scaninfo> const& work,
-    scaninfo const& diff, float invWidth,
+    scaninfo diff, float invWidth,
     int i, float n, int x, int y, int pixels);
 
 template<typename T, mainloop_pfn mainloop = fill_mainloop<T>>
@@ -621,6 +629,14 @@ bool handle_mouse_motion_event(SDL_MouseMotionEvent const& e)
     if (mouselook_enabled) {
         mouselook_yaw += e.xrel * mouselook_yaw_scale;
         mouselook_pitch += e.yrel * mouselook_pitch_scale;
+        while (mouselook_yaw > M_PIf)
+            mouselook_yaw -= M_PIf * 2.0f;
+        while (mouselook_pitch > M_PI)
+            mouselook_pitch -= M_PIf * 2.0f;
+        while (mouselook_yaw < -M_PIf)
+            mouselook_yaw += M_PIf * 2.0f;
+        while (mouselook_pitch < -M_PIf)
+            mouselook_pitch += M_PIf * 2.0f;
     }
     return true;
 }
@@ -645,6 +661,9 @@ bool handle_window_event(SDL_WindowEvent const& e)
         mouselook_enabled = false;
         SDL_SetRelativeMouseMode(SDL_FALSE);
         SDL_ShowCursor(SDL_ENABLE);
+        // Mark everything as not pressed
+        std::fill(std::begin(mouselook_pressed),
+            std::end(mouselook_pressed), false);
         return true;
     }
     return true;
@@ -884,9 +903,22 @@ bool delete_texture(size_t binding)
     return true;
 }
 
+size_t select_mipmap(glm::vec2 const& diff_of_t)
+{
+    float d = std::max(diff_of_t.s, diff_of_t.t);
+    unsigned level = std::max(0, std::ilogbf(d));
+    std::cerr << "Using level " << level << "\n";
+    return std::min(texture->mipmap_levels - 1, level);
+}
+
+size_t indexof_mipmap(size_t level)
+{
+    return (texture->iw * texture->ih * ((1U << (2 * level)) - 1)) / 3;
+}
+
 void set_texture(uint32_t const *incoming_pixels,
     int incoming_w, int incoming_h, int incoming_pitch,
-    void (*free_fn)(void *p))
+    int incoming_levels, void (*free_fn)(void *p))
 {
     if (texture->pixels && texture->free_fn)
         texture->free_fn((void*)texture->pixels);
@@ -897,6 +929,8 @@ void set_texture(uint32_t const *incoming_pixels,
     texture->fh = incoming_h;
     texture->pitch = incoming_pitch;
     texture->free_fn = free_fn;
+
+    texture->mipmap_levels = incoming_levels;
 }
 
 int setup(int width, int height);
@@ -905,9 +939,10 @@ void cleanup(int width, int height);
 bool measure;
 std::vector<std::string> command_line_files;
 
-int main(int argc, char const * const * argv)
+int main(int argc, char const *const *argv)
 {
-    for (int i = 1; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i)
+    {
         if (!strcmp(argv[i], "--measure")) {
             measure = true;
             continue;
@@ -1061,7 +1096,8 @@ std::mutex border_lookup_lock;
 std::map<int, std::vector<float>> border_lookup;
 
 void fill_box(frame_param const& fp, int sx, int sy,
-    int ex, int ey, uint32_t color, int border_radius)
+    int ex, int ey, float z,
+    uint32_t color, int border_radius)
 {
     std::vector<float> *border_table = nullptr;
     if (border_radius) {
@@ -1082,7 +1118,7 @@ void fill_box(frame_param const& fp, int sx, int sy,
     for (int y = sy; y <= ey; ++y) {
         assert(y % task_workers.size() == slot);
         task_workers[slot].emplace(false,
-            fp, y, sx, sy, ex, ey, color, border_table);
+            fp, y, sx, sy, ex, ey, z, color, border_table);
 
         ++slot;
         slot &= -(slot < task_workers.size());
@@ -1095,48 +1131,9 @@ void texture_triangle(frame_param const& fp,
     ensure_scratch(fp.height);
     size_t dir;
 
-    // Project homogenous coordinates to NDC 3D
-    // float inv_v0w = 1.0f / v0.p.w;
-    // float inv_v1w = 1.0f / v1.p.w;
-    // float inv_v2w = 1.0f / v2.p.w;
-    // glm::vec3 p0 =
-    //     glm::vec3(v0.p.x * inv_v0w, v0.p.y * inv_v0w, v0.p.z * inv_v0w);
-    // glm::vec3 p1 =
-    //     glm::vec3(v1.p.x * inv_v1w, v1.p.y * inv_v1w, v1.p.z * inv_v1w);
-    // glm::vec3 p2 =
-    //     glm::vec3(v2.p.x * inv_v2w, v2.p.y * inv_v2w, v2.p.z * inv_v2w);
-
-    // v0.p.x = p0.x; v0.p.y = p0.y; v0.p.z = p0.z; v0.p.w = inv_v0w;
-    // v1.p.x = p1.x; v1.p.y = p1.y; v1.p.z = p1.z; v1.p.w = inv_v1w;
-    // v2.p.x = p2.x; v2.p.y = p2.y; v2.p.z = p2.z; v2.p.w = inv_v2w;
-
-    // v0.p.x *= fp.width * 0.5f;
-    // v1.p.x *= fp.width * 0.5f;
-    // v2.p.x *= fp.width * 0.5f;
-
-    // v0.p.y *= fp.height * 0.5f;
-    // v1.p.y *= fp.height * 0.5f;
-    // v2.p.y *= fp.height * 0.5f;
-
-    // v0.p.z *= 0.5f;
-    // v1.p.z *= 0.5f;
-    // v2.p.z *= 0.5f;
-
-    // v0.p.x += fp.width * 0.5f;
-    // v1.p.x += fp.width * 0.5f;
-    // v2.p.x += fp.width * 0.5f;
-
-    // v0.p.y += fp.height * 0.5f;
-    // v1.p.y += fp.height * 0.5f;
-    // v2.p.y += fp.height * 0.5f;
-
-    // v0.p.z += 0.5f;
-    // v1.p.z += 0.5f;
-    // v2.p.z += 0.5f;
-
-    glm::vec3 p0{v0.p.x, v0.p.y, v0.p.z};
-    glm::vec3 p1{v1.p.x, v1.p.y, v1.p.z};
-    glm::vec3 p2{v2.p.x, v2.p.y, v2.p.z};
+    glm::vec3 p0{v0.p};
+    glm::vec3 p1{v1.p};
+    glm::vec3 p2{v2.p};
     bool backfacing = (glm::cross(p1 - p0, p2 - p0).z < 0);
 
     int maxy = INT_MIN;
@@ -1270,9 +1267,43 @@ static scaninfo *scaninfo_transform(frame_param const& fp,
     scaninfo const *vinp, size_t count)
 {
     reset_clip_scratch(count);
-    for (size_t i = 0; i < count; ++i) {
-        scaninfo s = combined_xform * vinp[i];
-        vinp_scratch.emplace_back(s);
+    size_t const parallel_threshold = 4096;
+    if (count < parallel_threshold) {
+        for (size_t i = 0; i < count; ++i) {
+            scaninfo s = combined_xform * vinp[i];
+            vinp_scratch.emplace_back(s);
+        }
+    } else {
+        std::atomic_size_t next_chunk{0};
+        size_t constexpr chunk_sz = parallel_threshold;
+        vinp_scratch.resize(count);
+        auto worker = [&] {
+            // Keep going if it looks like there is another
+            // chunk available for processing
+            while (next_chunk < count) {
+                // Take chunk and advance it by a chunk size
+                size_t chunk_start = next_chunk.fetch_add(
+                    chunk_sz, std::memory_order_acq_rel);
+                // If it went way over, undo what we did
+                if (chunk_start >= count + chunk_sz) {
+                    next_chunk.fetch_add(-chunk_sz,
+                        std::memory_order_acq_rel);
+                }
+                if (chunk_start < count) {
+                    for (size_t i = chunk_start;
+                            i < count && i < chunk_start + chunk_sz; ++i)
+                        vinp_scratch[i] = combined_xform * vinp[i];
+                }
+            }
+        };
+        auto cpu_count = std::thread::hardware_concurrency();
+        std::vector<std::thread> threads;
+        threads.reserve(cpu_count - 1);
+        for (size_t i = 1; i < cpu_count; ++i)
+            threads.emplace_back(worker);
+        worker();
+        for (auto &worker : threads)
+            worker.join();
     }
     return vinp_scratch.data();
 }
@@ -1460,11 +1491,11 @@ size_t hash_bytes(void const *data, size_t size)
 }
 
 void texture_elements(frame_param const &fp,
-    scaninfo const *vertices, size_t vertex_count,
+    scaninfo const *user_vertices, size_t vertex_count,
     uint32_t const *elements, size_t element_count)
 {
     // Transform into clipping scratch
-    scaninfo_transform(fp, vertices, vertex_count);
+    scaninfo *vertices = scaninfo_transform(fp, user_vertices, vertex_count);
     // Take it and give clipping scratch the empty vector
     std::vector<scaninfo> xfv;
     // todo: 64 is a bit arbitrary, consider updating after analysis
@@ -1473,7 +1504,8 @@ void texture_elements(frame_param const &fp,
 
     size_t constexpr vertices_per_triangle = 3;
 
-    for (size_t i = 0; i + 2 < element_count; i += vertices_per_triangle) {
+    for (size_t i = 0; i + vertices_per_triangle <= element_count;
+            i += vertices_per_triangle) {
         texture_triangle(fp, vertices[elements[i]],
             vertices[elements[i+1]], vertices[elements[i+2]]);
     }

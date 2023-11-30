@@ -232,17 +232,18 @@ void texture_triangle(frame_param const& fp,
     scaninfo v2);
 void fill_box(frame_param const& fp,
     int sx, int sy,
-    int ex, int ey, uint32_t color, int border_radius = 0);
+    int ex, int ey, float z,
+    uint32_t color, int border_radius = 0);
 
 void set_texture(uint32_t const *incoming_pixels,
     int incoming_w, int incoming_h, int incoming_pitch,
-    void (*free_fn)(void*));
+    int incoming_levels, void (*free_fn)(void*));
 
 void flip_colors(uint32_t *pixels, int imgw, int imgh);
 void bind_texture(size_t binding);
 bool delete_texture(size_t binding);
 void parallel_clear(frame_param const &frame, uint32_t color);
-void draw_text(frame_param const &frame, int x, int y,
+void draw_text(frame_param const &frame, int x, int y, float z,
                char const *text_st, char const *text_en = nullptr,
                int wrap_col = -1, uint32_t color = 0xFFFFFFFF);
 
@@ -301,17 +302,20 @@ extern std::vector<std::string> command_line_files;
 #include "text.h"
 
 struct fill_job {
+    // barrier
     fill_job(frame_param const &fp, barrier *frame_barrier)
         : fp(fp)
         , frame_barrier(frame_barrier)
     {}
 
+    // clean
     fill_job(frame_param const &fp, int cleared_row, uint32_t color)
         : fp(fp)
         , clear_row(cleared_row)
         , clear_color(color)
     {}
 
+    // span
     fill_job(frame_param const &fp, int y,
         edgeinfo const& lhs, edgeinfo const& rhs, unsigned back_phase)
         : fp(fp)
@@ -322,20 +326,24 @@ struct fill_job {
             std::min((int16_t)y, (int16_t)INT16_MAX));
     }
 
+    // box
     fill_job(frame_param const& fp, int y,
-            int sx, int sy, int ex, int ey, uint32_t color,
+            int sx, int sy, int ex, int ey, float z, uint32_t color,
             std::vector<float> const *border_table)
         : fp(fp)
         , clear_color(color)
         , border_table(border_table)
+        , z(z)
         , box_y(y)
         , box{(int16_t)sx, (int16_t)sy, (int16_t)ex, (int16_t)ey}
     {}
 
-    fill_job(frame_param const& fp, int y, int sx, int sy,
+    // glyph (text)
+    fill_job(frame_param const& fp, int y, int sx, int sy, float z,
             size_t glyph_index, uint32_t color)
         : fp(fp)
         , clear_color(color)
+        , z(z)
         , glyph_index(glyph_index)
         , box_y(y)
         , box{}
@@ -354,6 +362,7 @@ struct fill_job {
     uint32_t clear_color;
     barrier *frame_barrier = nullptr;
     std::vector<float> const *border_table;
+    float z;
     uint16_t glyph_index = -1;
     int16_t box_y = -1;
     int16_t box[4];
@@ -361,3 +370,20 @@ struct fill_job {
 
 using fill_task_worker = task_worker<fill_job>;
 extern std::vector<fill_task_worker> task_workers;
+
+//  7: 0 blue
+// 15: 8 green
+// 23:16 blue
+// 31:24 alpha
+
+// packed RGBA conversion readability utilities
+#define rgba(r,g,b,a)       ((b) | ((g) << 8) | ((r) << 16) | ((a) << 24))
+#define rgb0(r,g,b)         (rgba((r), (g), (b), 0))
+#define rgb(r,g,b)          (rgba((r), (g), (b), 0xff))
+#define rgb_a(pixel)        (((pixel)>>24)&0xFF)
+#define rgb_r(pixel)        (((pixel)>>16)&0xFF)
+#define rgb_g(pixel)        (((pixel)>>8)&0xFF)
+#define rgb_b(pixel)        (((pixel))&0xFF)
+
+size_t select_mipmap(glm::vec2 const& diff_of_t);
+size_t indexof_mipmap(size_t level);

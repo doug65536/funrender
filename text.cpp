@@ -18,8 +18,8 @@ void text_init(int size, int first_cp, int last_cp)
     if (TTF_Init() != 0)
         return;
 
-    char const *font_name = "RobotoMono-VariableFont_wght.ttf";
-    // char const *font_name = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf";
+    //char const *font_name = "RobotoMono-VariableFont_wght.ttf";
+    char const *font_name = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf";
     //char const *font_name = "/usr/share/fonts/truetype/tlwg/Purisa-BoldOblique.ttf";
     //char const *font_name = "/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf";
     //char const *font_name = "/usr/share/fonts/truetype/freefont/FreeMono.ttf";
@@ -199,50 +199,90 @@ void glyph_worker(fill_job &job)
 {
     glyph_info const &info = glyphs.info[job.glyph_index];
     uint64_t data = glyph_bits(job.glyph_index, job.box_y - job.box[1]);
-    uint32_t *pixels = &job.fp.pixels[job.fp.pitch *
+    size_t pixel_index = job.fp.pitch *
             (job.fp.top + job.box_y) +
-            job.box[0] + job.fp.left];
+            job.box[0] + job.fp.left;
+    uint32_t *pixels = &job.fp.pixels[pixel_index];
+    float *depths = &job.fp.z_buffer[pixel_index];
     for (size_t bit = info.ex - info.sx, i = 0; data && bit > 0; ++i, --bit) {
         bool set = data & (1U << (bit - info.sx - 1));
         uint32_t &pixel = pixels[i];
+        float &depth = depths[i];
+        set &= -(depth > job.z);
         pixel = (job.clear_color & -set) | (pixel & ~-set);
+        depth = set ? job.z : depth;
     }
 }
 
-__attribute__((__format__(printf, 5, 0)))
-bool format_text_v(frame_param const& frame,
-    int x, int y, uint32_t color,
-    char const *format, va_list ap)
+__attribute__((__format__(printf, 1, 0)))
+std::vector<char> printf_to_vector_v(char const *format, va_list ap)
 {
     va_list ap2;
     va_copy(ap2, ap);
-    int len = vsnprintf(nullptr, 0, format, ap);
-    if (len < 0)
-        return false;
-    std::vector<char> buffer(len + 1);
-    int len2 = vsnprintf(buffer.data(), buffer.size(), format, ap2);
+    int sz = vsnprintf(nullptr, 0, format, ap);
+    if (sz < 0)
+        throw std::invalid_argument("format");
+    std::vector<char> buffer(sz + 1);
+    int sz2 = vsnprintf(buffer.data(), buffer.size(), format, ap2);
+    if (sz2 < 0 || sz != sz2)
+        throw std::invalid_argument("format");
     va_end(ap2);
-    bool ok = len == len2;
-    if (len && ok) {
-        draw_text(frame, x, y, buffer.data(),
-            buffer.data() + buffer.size(), 0, color);
-    }
-    return ok;
+    return buffer;
 }
 
-__attribute__((__format__(printf, 5, 6)))
-bool format_text(frame_param const& frame,
-    int x, int y, uint32_t color,
-    char const *format, ...)
+__attribute__((__format__(printf, 1, 0)))
+int measure_text_v(char const *format, va_list ap)
+{
+    int total_advance = 0;
+    std::vector<char> buffer = printf_to_vector_v(format, ap);
+    for (char32_t ch : ucs32(buffer.data(), buffer.data() + buffer.size())) {
+        ssize_t glyph_index = find_glyph(ch);
+        if (glyph_index >= 0)
+            total_advance += glyphs.info[glyph_index].advance;
+    }
+    return total_advance;
+}
+
+__attribute__((__format__(printf, 1, 2)))
+int measure_text(char const *format, ...)
 {
     va_list ap;
     va_start(ap, format);
-    bool result = format_text_v(frame, x, y, color, format, ap);
+    int result = measure_text_v(format, ap);
     va_end(ap);
     return result;
 }
 
-void draw_text(frame_param const& frame, int x, int y,
+__attribute__((__format__(printf, 6, 0)))
+void format_text_v(frame_param const& frame,
+    int x, int y, float z, uint32_t color,
+    char const *format, va_list ap)
+{
+    std::vector<char> buffer = printf_to_vector_v(format, ap);
+    if (!buffer.empty()) {
+        // Negative x means right margin, right justify
+        if (x < 0) {
+            int measurement = measure_text("%s", buffer.data());
+            x = frame.width + x - measurement;
+        }
+
+        draw_text(frame, x, y, z, buffer.data(),
+            buffer.data() + buffer.size(), 0, color);
+    }
+}
+
+__attribute__((__format__(printf, 6, 7)))
+void format_text(frame_param const& frame,
+    int x, int y, float z, uint32_t color,
+    char const *format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
+    format_text_v(frame, x, y, z, color, format, ap);
+    va_end(ap);
+}
+
+void draw_text(frame_param const& frame, int x, int y, float z,
     char32_t const *text_st, char32_t const *text_en,
     int wrap_col, uint32_t color)
 {
@@ -256,7 +296,8 @@ void draw_text(frame_param const& frame, int x, int y,
             if (first_newline == text_en)
                 first_newline = sane_min(text_en, text_st + wrap_col);
             size_t line_length = first_newline - text_st;
-            draw_text(frame, x, y, text_st, text_st + line_length, -1, color);
+            draw_text(frame, x, y, z,
+                text_st, text_st + line_length, -1, color);
             y += glyphs.h;
             text_st += line_length + (text_st + line_length < text_en &&
                 text_st[line_length] == '\n');
@@ -290,7 +331,7 @@ void draw_text(frame_param const& frame, int x, int y,
                     x < frame.width && y + glyphs.h >= 0) {
                 size_t slot = dy % task_workers.size();
                 fill_job_batches[slot].emplace_back(
-                    frame, dy, x, y, glyph_index, color);
+                    frame, dy, x, y, z, glyph_index, color);
             }
         }
     }
@@ -302,7 +343,7 @@ void draw_text(frame_param const& frame, int x, int y,
     }
 }
 
-void draw_text(frame_param const& frame, int x, int y,
+void draw_text(frame_param const& frame, int x, int y, float z,
     char const *utf8_st, char const *utf8_en,
     int wrap_col, uint32_t color)
 {
@@ -313,7 +354,7 @@ void draw_text(frame_param const& frame, int x, int y,
     char32_t const *text_st = codepoints.data();
     char32_t const *text_en = text_st + codepoints.size();
 
-    draw_text(frame, x, y, text_st, text_en, wrap_col, color);
+    draw_text(frame, x, y, z, text_st, text_en, wrap_col, color);
 }
 
 // Convert the given range of UTF-8 to UCS32
