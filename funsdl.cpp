@@ -28,6 +28,24 @@
 #include "fastminmax.h"
 #include "text.h"
 
+static constexpr size_t light_count = 8;
+
+// If w=0, light is directional at infinity
+// If w=1, light is at the specific position
+static glm::vec4 light_position[light_count];
+
+// Diffuse color
+static glm::vec3 light_diffuse[light_count];
+
+// Specular color
+static glm::vec3 light_specular[light_count];
+
+// Spot direction in viewspace
+static glm::vec3 light_spot_dir[light_count];
+
+// x is spot cutoff, y is spot exponent
+static glm::vec2 light_spot_info[light_count];
+
 static int blit_to_screen(SDL_Surface *surface, SDL_Rect &src,
     SDL_Surface *window_surface, SDL_Rect &dest);
 
@@ -1043,6 +1061,36 @@ uint32_t indexof_mipmap(int level)
     return (uint32_t)(((uint64_t)texture->lvl0sz * mul) >> kept);
 }
 
+void set_light_pos(size_t light_nr, glm::vec4 const &pos)
+{
+    if (light_nr < light_count)
+        light_position[light_nr] = view_mtx_stk.back() * pos;
+}
+
+void set_light_spot(size_t light_nr,
+    glm::vec3 const& dir, float cutoff, float exponent)
+{
+    if (light_nr < light_count) {
+        light_spot_dir[light_nr] = glm::mat3(view_mtx_stk.back()) * dir;
+        light_spot_info[light_nr] = {
+            cutoff,
+            exponent
+        };
+    }
+}
+
+void set_light_diffuse(size_t light_nr, glm::vec3 color)
+{
+    if (light_nr < light_count)
+        light_diffuse[light_nr] = color;
+}
+
+void set_light_specular(size_t light_nr, glm::vec3 color)
+{
+    if (light_nr < light_count)
+        light_specular[light_nr] = color;
+}
+
 void set_texture(uint32_t const *incoming_pixels,
     int incoming_w, int incoming_h, int incoming_pitch,
     int incoming_levels, void (*free_fn)(void *p))
@@ -1258,6 +1306,8 @@ void texture_triangle(render_target const& fp,
 {
     ensure_scratch(fp.height);
     size_t dir;
+
+
 
     glm::vec3 p0{v0.p};
     glm::vec3 p1{v1.p};

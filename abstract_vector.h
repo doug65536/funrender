@@ -390,6 +390,34 @@ To convert_to(From const& orig)
     return __builtin_convertvector(orig, To);
 }
 
+template<typename As, typename From,
+    typename = to_vec_t<From>>
+As cast_to(From const& rhs)
+{
+    return __builtin_bit_cast(As, rhs);
+}
+
+template<typename T,
+    typename = to_vec_t<T>>
+T min(T const& a, T const& b)
+{
+    return __builtin_elementwise_min(a, b);
+}
+
+template<typename T,
+    typename = to_vec_t<T>>
+T max(T const& a, T const& b)
+{
+    return __builtin_elementwise_max(a, b);
+}
+
+template<typename T,
+    typename = to_vec_t<T>>
+T ntload(T *address)
+{
+    return __builtin_nontemporal_load(address);
+}
+
 template<typename From,
     typename Tcomp = component_of_t<From>,
     size_t N = comp_count_v<From>,

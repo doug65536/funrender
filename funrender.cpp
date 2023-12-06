@@ -507,6 +507,10 @@ void user_frame(render_target const& frame)
         glm::vec3 n3{};
         glm::vec3 c3{1.0f};
 
+        n1 = n2 = n3 = glm::cross(
+            glm::normalize(glm::vec3(v[1] - v[0])),
+            glm::normalize(glm::vec3(v[2] - v[0])));
+
         texture_polygon(frame, std::array<scaninfo, 3>{
             scaninfo{t1, v[0], n1, c1},
             scaninfo{t2, v[1], n2, c2},

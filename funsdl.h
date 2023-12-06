@@ -144,7 +144,13 @@ struct scaninfo {
     friend scaninfo operator *(glm::mat4 const& lhs, scaninfo const& rhs)
     {
         scaninfo result{rhs};
+
+        // Transform the position
         result.p = lhs * rhs.p;
+
+        // Transform the normal
+        result.n = glm::mat3(lhs) * rhs.n;
+
         return result;
     }
 
@@ -416,3 +422,5 @@ extern std::vector<fill_task_worker> task_workers;
 
 int select_mipmap(glm::vec2 const& diff_of_t, float invWidth);
 uint32_t indexof_mipmap(int level);
+
+void set_light_pos(size_t light_nr, glm::vec4 const& pos);
