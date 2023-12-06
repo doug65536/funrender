@@ -63,8 +63,12 @@ public:
                 // Add the entry that says where the new object starts
                 object_starts.push_back(face_nr);
             } else if (!is_mtllib && word == "s") {
-                int group{};
-                ss >> group;
+                std::getline(ss, name);
+
+                if (name == "off")
+                    name = "0";
+
+                int group = std::atoi(name.c_str());
 
                 // If first smoothing group and not at face 0
                 // inject the implied range starting at 0 in group 0
@@ -90,18 +94,22 @@ public:
                             index *= 10;
                             index += word[i] - '0';
                         } else if (i == word.size() || word[i] == '/') {
-                            static constexpr uint32_t (face_ent::*member[]) = {
+                            static constexpr uint32_t face_ent::*member[] = {
                                 &face_ent::vertex,
                                 &face_ent::tc,
                                 &face_ent::normal
                             };
-                            if (phase < sizeof(member) / sizeof(*member)) {
+                            size_t constexpr phase_count =
+                                sizeof(member) / sizeof(*member);
+                            if (phase < (int)phase_count) {
                                 f.*(member[phase]) = index;
                                 ++phase;
                                 index = 0;
                             } else {
                                 // There were more than 3 things in this entry?
                                 // This code does not know what to do with that
+                                // We'd need to know what's after normal
+                                // in the "member" lookup table
                                 assert(!"What do I do here? Probably drop it");
                             }
                         }
@@ -187,6 +195,13 @@ public:
     }
 
     struct material_info {
+        // Ambient is constant, and is not affected by lights
+        // Diffuse only looks at the angle between the normal
+        // and the vector to the light source. The viewer position
+        // is ignored.
+        // Specular looks at the angle between the reflection
+        // direction and the vector to the camera
+
         // Ambient reflectivity
         glm::vec3 Ka;
 
@@ -493,7 +508,10 @@ private:
                 // group
                 glm::vec3{(float)(uint32_t)(smoothing_group & 0xFFFF),
                     (float)(uint32_t)(smoothing_group >> 16),
-                    INFINITY}
+                    INFINITY},
+
+            // color
+            glm::vec3(1.0f)
         };
     }
 

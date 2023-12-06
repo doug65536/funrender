@@ -1,6 +1,7 @@
 #include "3ds.h"
 #include <fstream>
 #include <vector>
+#include <cstring>
 
 bool threeds_loader::load(char const *pathname)
 {

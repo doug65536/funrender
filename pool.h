@@ -5,6 +5,8 @@
 #include <map>
 #include <array>
 #include <type_traits>
+#include <cstddef>
+#include <memory>
 
 template<typename T, size_t log2_bucket_sz = 7>
 class pool

@@ -57,7 +57,8 @@ void cleanup(int width, int height)
 obj_file_loader::loaded_mesh mesh;
 
 uint32_t *load_image(int *ret_width, int *ret_height,
-    char const *pathname)
+    char const *pathname,
+    std::string *fail_reason = nullptr)
 {
     FILE *pngfile = fopen(pathname, "rb");
     int imgw{};
@@ -65,6 +66,19 @@ uint32_t *load_image(int *ret_width, int *ret_height,
     int comp{};
     uint32_t *pixels = (uint32_t *)stbi_load_from_file(
         pngfile, &imgw, &imgh, &comp, 4);
+    if (unlikely(!pixels)) {
+        if (fail_reason)
+            *fail_reason = stbi_failure_reason();
+        return nullptr;
+    }
+
+    if (!imgw || !imgh || (imgw & (imgw - 1)) || (imgh & (imgh - 1))) {
+        if (fail_reason)
+            *fail_reason = "Non power of two size unsupported";
+        stbi_image_free(pixels);
+        return nullptr;
+    }
+
     //flip_colors(pixels, imgw, imgh);
     bind_texture(1);
 
@@ -75,7 +89,8 @@ uint32_t *load_image(int *ret_width, int *ret_height,
     for (size_pair size{ imgw, imgh }; size.first && size.second;
             (size.first >>= 1), (size.second >>= 1)) {
         total_pixels += size.first * size.second;
-        std::cerr << "Adding size " << size.first << "x" << size.second << "\n";
+        std::cerr << "Adding size " <<
+            size.first << "x" << size.second << "\n";
         sizes.push_back(size);
     }
 
@@ -89,7 +104,7 @@ uint32_t *load_image(int *ret_width, int *ret_height,
         throw std::bad_alloc();
     std::copy(orig_pixels, orig_pixels + imgw * imgh, pixels);
     orig_pixels = nullptr;
-    if (!pixels)
+    if (unlikely(!pixels))
         throw std::bad_alloc();
 
     uint32_t *input = pixels;
@@ -101,13 +116,13 @@ uint32_t *load_image(int *ret_width, int *ret_height,
         uint32_t input_sz = size.first * size.second;
         uint32_t *output = input + input_sz;
 
-        for (size_t y = 0; y < size.second; y += 2) {
-            for (size_t x = 0; x < size.first; x += 2) {
+        for (size_t y = 0; (int)y < size.second; y += 2) {
+            for (size_t x = 0; (int)x < size.first; x += 2) {
                 uint32_t inputs[4] = {
                     input[y * size.second + x],
                     input[y * size.second + x + 1],
                     input[(y + 1) * size.second + x],
-                    input[(y + 1) * size.second + x + 1],
+                    input[(y + 1) * size.second + x + 1]
                 };
                 int r = (rgb_r(inputs[0]) + rgb_r(inputs[1]) +
                     rgb_r(inputs[2]) + rgb_r(inputs[3])) >> 2;
@@ -116,12 +131,17 @@ uint32_t *load_image(int *ret_width, int *ret_height,
                 int b = (rgb_b(inputs[0]) + rgb_b(inputs[1]) +
                     rgb_b(inputs[2]) + rgb_b(inputs[3])) >> 2;
                 uint32_t filtered = rgba(r, g, b, 0xFF);
-                output[(y >> 1) * size.second + (x >> 1)] = filtered;
+                output[(y >> 1) * (size.second >> 1) + (x >> 1)] = filtered;
             }
         }
 
+        // Point to the end of the input
         input += input_sz;
+
+        // Divide the size by 4
         input_sz >>= 2;
+
+        // Point to the end of the output
         output += input_sz;
     }
 
@@ -144,7 +164,13 @@ int setup(int width, int height)
         mesh.dump_info(std::cerr);
     }
 
-    load_image(&width, &height, "earthmap1k.png");
+    std::string fail_reason;
+    uint32_t *pixels = load_image(
+        &width, &height, "earthmap1k.png", &fail_reason);
+    if (!pixels) {
+        std::cerr << "Texture load failed!\n";
+        return EXIT_FAILURE;
+    }
 
     // float fovy = glm::radians(60.0f);
     // float aspect = (float)width / height;
@@ -159,7 +185,7 @@ int setup(int width, int height)
     glm::mat4 vm = view_mtx_stk.emplace_back(1.0f);
 
     srand(44444);
-    return 0;
+    return EXIT_SUCCESS;
 }
 
 // Cube
@@ -210,14 +236,14 @@ static unsigned int cubeIndices[] = {
 
 
 
-void new_render_frame(frame_param const& frame)
+void new_render_frame(render_target const& frame)
 {
     parallel_clear(frame, 0xFF561234);
 
 
 }
 
-uint64_t handle_input(frame_param const& frame, time_point this_time)
+uint64_t handle_input(render_target const& frame, time_point this_time)
 {
     duration frame_time = this_time - last_frame_time;
     last_frame_time = this_time;
@@ -233,9 +259,9 @@ uint64_t handle_input(frame_param const& frame, time_point this_time)
 
     mouselook_acc.z = 0.0f;
     if (mouselook_pressed[0] && !mouselook_pressed[2])
-        mouselook_acc.z = 4.0f;
-    else if (mouselook_pressed[2] && !mouselook_pressed[0])
         mouselook_acc.z = -4.0f;
+    else if (mouselook_pressed[2] && !mouselook_pressed[0])
+        mouselook_acc.z = 4.0f;
     // else if (mouselook_pressed[2] && mouselook_pressed[0])
     //     mouselook_acc.z *= 0.95f;
     // else
@@ -278,6 +304,11 @@ uint64_t handle_input(frame_param const& frame, time_point this_time)
     mouselook_pos += mouselook_vel * sec_since;
 
     format_text(frame, -16,
+        frame.height - (64+6*24), -1.0f,
+        0xFFFFFFFF, "pos=%.3f %.3f %.3f",
+        mouselook_pos.x, mouselook_pos.y, mouselook_pos.z);
+
+    format_text(frame, -16,
         frame.height - (64+4*24), -1.0f,
         0xFFFFFFFF, "pitch=%f, yaw=%f ",
         mouselook_pitch, mouselook_yaw);
@@ -300,13 +331,13 @@ uint64_t handle_input(frame_param const& frame, time_point this_time)
     return us_since_last;
 }
 
-void user_frame(frame_param const& frame)
+void user_frame(render_target const& frame)
 {
     time_point this_time = clk::now();
 
     ++frame_nr;
 
-    parallel_clear(frame, 0xFF561234);
+    parallel_clear(frame, 0xFF101010);// 0xFF561234);
 
     view_mtx_stk.back() = glm::mat4(1.0f);
 
@@ -339,7 +370,7 @@ void user_frame(frame_param const& frame)
         " million elements per second\n";
 #else
 
-    size_t constexpr triangle_cnt = 400;
+    size_t constexpr triangle_cnt = 10;
     static float ang[triangle_cnt];
     static float xofs[triangle_cnt];
     static float yofs[triangle_cnt];
@@ -378,8 +409,6 @@ void user_frame(frame_param const& frame)
         }
         init_done = true;
     }
-
-    handle_input(frame, this_time);
 
     duration elap = this_time - last_avg_time;
     if (elap >= std::chrono::seconds(2)) {
@@ -426,10 +455,14 @@ void user_frame(frame_param const& frame)
             mouselook_pitch << ' ' << mouselook_yaw << '\n';
     }
 
+    static size_t const cpu_count = std::thread::hardware_concurrency();
+
     format_text(frame, -16,
         frame.height - (64+5*24), -1.0f,
-        0xFFFFFFFF, "user %u%%, kernel %u%%, total %u%%",
-        user_percent, kernel_percent, total_percent);
+        0xFFFFFFFF, "user %u%% (%zu%%), kernel %u%% (%zu%%), total %u%% (%zu%%)",
+        user_percent, user_percent / cpu_count,
+        kernel_percent, kernel_percent / cpu_count,
+        total_percent, total_percent / cpu_count);
 
     for (size_t i = 0; i < triangle_cnt; ++i) {
         float ang2 = ang[i] + spacing[i];
@@ -464,17 +497,20 @@ void user_frame(frame_param const& frame)
 
         glm::vec2 t1{0,0};
         glm::vec3 n1{};
+        glm::vec3 c1{1.0f, 0.0f, 0.0f};
 
         glm::vec2 t2{1,1};
         glm::vec3 n2{};
+        glm::vec3 c2{0.0f, 1.0f, 0.0f};
 
         glm::vec2 t3{1,0};
         glm::vec3 n3{};
+        glm::vec3 c3{1.0f};
 
         texture_polygon(frame, std::array<scaninfo, 3>{
-            scaninfo{t1, v[0], n1},
-            scaninfo{t2, v[1], n2},
-            scaninfo{t3, v[2], n3}
+            scaninfo{t1, v[0], n1, c1},
+            scaninfo{t2, v[1], n2, c2},
+            scaninfo{t3, v[2], n3, c3}
         });
     }
 
@@ -511,7 +547,7 @@ void user_frame(frame_param const& frame)
 // 012, 213, 234
 // even: n+1, n, n+2
 //  odd: n, n+1, n+2
-// void texture_strip(frame_param &fp, glm::vec3 *verts,
+// void texture_strip(render_target &fp, glm::vec3 *verts,
 //     size_t count, size_t stride = 2)
 // {
 //     for (size_t i = 0; i + 2 <= count; i += 2) {
@@ -519,14 +555,14 @@ void user_frame(frame_param const& frame)
 //     }
 // }
 
-// void texture_fan(frame_param &fp, glm::vec3 *verts,
+// void texture_fan(render_target &fp, glm::vec3 *verts,
 //     size_t count, size_t stride = 2)
 // {
 //     for (size_t i = 1; i < count; i += stride)
 //         texture_triangle(fp, verts[0], verts[i], verts[i + 1]);
 // }
 
-// void texture_tris(frame_param &fp, glm::vec3 *verts,
+// void texture_tris(render_target &fp, glm::vec3 *verts,
 //     size_t count, size_t stride = 3)
 // {
 //     for (size_t i = 0; i < count; i += stride) {

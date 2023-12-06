@@ -30,12 +30,12 @@ cpu_usage_info cpu_usage()
     FILETIME idleTime{}, kernelTime{}, userTime{};
     bool ok = GetSystemTimes(&idleTime, &kernelTime, &userTime);
 
-    uint64_t idle = idleTime.LowPart |
-        (uint64_t(idleTime.HighPart) << 32);
-    uint64_t kernel = kernelTime.LowPart |
-        (uint64_t(kernelTime.HighPart) << 32);
-    uint64_t user = userTime.LowPart |
-        (uint64_t(userTime.HighPart) << 32);
+    uint64_t idle = idleTime.dwLowDateTime |
+        (uint64_t(idleTime.dwHighDateTime) << 32);
+    uint64_t kernel = kernelTime.dwLowDateTime |
+        (uint64_t(kernelTime.dwHighDateTime) << 32);
+    uint64_t user = userTime.dwLowDateTime |
+        (uint64_t(userTime.dwHighDateTime) << 32);
     uint64_t total = kernel + user;
 
     if (!ok) {

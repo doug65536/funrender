@@ -1,4 +1,5 @@
 #include "funsdl.h"
+#include "assume.h"
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <iostream>
@@ -48,11 +49,10 @@ bool mouselook_pressed[6]; // WASDRF
 float mouselook_pitch = -3.72f;
 float mouselook_yaw = -0.42f;
 float mouselook_yaw_scale = 0.01f;
-float mouselook_pitch_scale = 0.01f;
+float mouselook_pitch_scale = -0.01f;
 glm::vec3 mouselook_pos{1029.33,0,388.895};
 glm::vec3 mouselook_vel;
 glm::vec3 mouselook_acc;
-glm::vec3 mouselook_nz;
 glm::vec3 mouselook_px;
 glm::vec3 mouselook_py;
 glm::vec3 mouselook_pz;
@@ -102,7 +102,7 @@ std::vector<fill_task_worker> task_workers;
 
 std::vector<scanconv_ent> scanconv_scratch;
 
-void user_frame(frame_param const& frame);
+void user_frame(render_target const& frame);
 
 uint32_t draw_nr;
 
@@ -120,12 +120,17 @@ const int SCREEN_HEIGHT = 540;
 SDL_Window* render_window = nullptr;
 SDL_Surface * back_surfaces[phase_count];
 bool back_surface_locked[phase_count];
-struct free_deleter { void operator()(void*p) const { free(p); } };
+struct free_deleter {
+    void operator()(void*p) const noexcept
+    {
+        free(p);
+    }
+};
 struct huge_free_deleter {
     huge_free_deleter() = default;
     huge_free_deleter(size_t size)
         : size(size) {}
-    void operator()(void*p) const
+    void operator()(void*p) const noexcept
     {
         huge_free(p, size);
     }
@@ -133,7 +138,7 @@ struct huge_free_deleter {
 };
 std::unique_ptr<uint32_t, huge_free_deleter> back_buffer_memory;
 uint32_t *back_buffers[phase_count];
-frame_param frame_params[phase_count];
+render_target render_targets[phase_count];
 // SDL_Surface * window_surface = nullptr;
 
 // 1 means drawing to back_surfaces[1]
@@ -146,10 +151,10 @@ SDL_Rect fb_area;
 
 struct texture_info {
     uint32_t const *pixels{};
-    float fw{}, fh{};
-    unsigned iw{}, ih{}, pitch{};
+    glm::vec2 fsz;
+    unsigned iw{}, ih{}, lvl0sz{}, pitch{};
     void (*free_fn)(void*) = nullptr;
-    unsigned mipmap_levels;
+    int mipmap_levels;
 };
 
 using scoped_lock = std::unique_lock<std::mutex>;
@@ -161,14 +166,16 @@ static texture_info *texture;
 __attribute__((__noinline__))
 void clear_worker(fill_job &job)
 {
-    for (int y = job.clear_row; y < job.fp.height; y += task_workers.size()) {
+    for (int y = job.clear_row;
+            y < job.fp.height; y += task_workers.size()) {
         float *z_output = job.fp.z_buffer +
             job.fp.pitch * (y + job.fp.top) + job.fp.left;
         //std::numeric_limits<float>::max());
         std::fill_n(z_output, job.fp.width, 1.0f);
     }
 
-    for (int y = job.clear_row; y < job.fp.height; y += task_workers.size()) {
+    for (int y = job.clear_row;
+            y < job.fp.height; y += task_workers.size()) {
         uint32_t *output = job.fp.pixels +
             job.fp.pitch * (y + job.fp.top) + job.fp.left;
         std::fill_n(output, job.fp.width, job.clear_color);
@@ -219,12 +226,14 @@ void box_worker(fill_job &job)
     int from_top_edge = job.box_y - job.box[1];
     int from_bot_edge = job.box[3] - job.box_y;
 
-    if (job.border_table && from_top_edge < job.border_table->size()) {
+    if (job.border_table &&
+            from_top_edge < (int)job.border_table->size()) {
         int adj = (int)(*job.border_table)[from_top_edge];
         // adj = (job.border_table->size() - 1) -  adj;
         x += adj;
         ex -= adj;
-    } else if (job.border_table && from_bot_edge < job.border_table->size()) {
+    } else if (job.border_table &&
+            from_bot_edge < (int)job.border_table->size()) {
         int adj = (int)(*job.border_table)[from_bot_edge];
         // adj = (job.border_table->size() - 1) -  adj;
         x += adj;
@@ -292,10 +301,14 @@ void box_worker(fill_job &job)
     }
 }
 
-template<typename T>
-void fill_mainloop(fill_job &job,
-    std::pair<scaninfo, scaninfo> const& work, scaninfo diff,
-    float invWidth, int i, float n, int x, int y, int pixels)
+template<typename T, bool write_color = true,
+    bool test_z = true, bool write_z = true>
+void fill_mainloop(
+    fill_job const& __restrict job,
+    std::pair<scaninfo, scaninfo> const& __restrict work,
+    scaninfo const& __restrict diff,
+    glm::vec2 const& tdiff, float invWidth,
+    int i, float n, int x, int y, int pixels)
 {
     using F = typename vecinfo_t<T>::as_float;
     //using I = typename vecinfo_t<T>::as_int;
@@ -303,15 +316,25 @@ void fill_mainloop(fill_job &job,
     constexpr size_t vec_sz = vecinfo_t<T>::sz;
     constexpr size_t vec_mask = vecinfo_t<T>::sz - 1;
 
-    size_t mipmap_level = select_mipmap(diff.t * diff.p.x);
+#if ENABLE_MIPMAP
+    // the texture coordinates are actually u/w and v/w and w is 1/w,
+    // we have to divide them by 1/w to get back to screenspace
+    int mipmap_level = select_mipmap((work.second.t / work.second.p.w) -
+        (work.first.t / work.first.p.w), std::abs(invWidth));
     size_t mipmap_offset = indexof_mipmap(mipmap_level);
-    uint32_t const *texture_pixels = texture->pixels + mipmap_offset;
-    int texture_w = texture->iw >> mipmap_level;
-    int texture_h = texture->ih >> mipmap_level;
-    float texture_fw = texture_w;
-    float texture_fh = texture_h;
-    diff.t *= (1.0f / (1 << mipmap_level));
-
+    uint32_t const * __restrict texture_pixels =
+        texture->pixels + mipmap_offset;
+    unsigned texture_w = texture->iw >> mipmap_level;
+    unsigned texture_h = texture->ih >> mipmap_level;
+    float texture_fw = (float)texture_w;
+    float texture_fh = (float)texture_h;
+#else
+    uint32_t const * __restrict texture_pixels = texture->pixels;
+    unsigned &texture_w = texture->iw;
+    unsigned &texture_h = texture->ih;
+    float &texture_fw = texture->fsz.s;
+    float &texture_fh = texture->fsz.t;
+#endif
     // Adjust by viewport before alignment
     x += job.fp.left;
 
@@ -326,15 +349,16 @@ void fill_mainloop(fill_job &job,
     F n_step = invWidth * vecinfo_t<F>::vec_broadcast((float)vec_sz);
 
     size_t pixel_index = job.fp.pitch * (y + job.fp.top) + x;
-    uint32_t *pixel_io = job.fp.pixels + pixel_index;
-    float *depth_io = job.fp.z_buffer + pixel_index;
+    uint32_t * __restrict pixel_io = job.fp.pixels + pixel_index;
+    float * __restrict depth_io = job.fp.z_buffer + pixel_index;
 
-    assert((uintptr_t)pixel_io == ((uintptr_t)pixel_io & -vec_sz));
-    assert((uintptr_t)depth_io == ((uintptr_t)depth_io & -vec_sz));
+    assume((uintptr_t)pixel_io == ((uintptr_t)pixel_io & -vec_sz));
+    assume((uintptr_t)depth_io == ((uintptr_t)depth_io & -vec_sz));
 
     F n_vec = invWidth * vecinfo_t<F>::laneoffs + n;
-    for ( ; i < pixels; i += vec_sz, x += vec_sz,
-            mask = vecinfo_t<T>::lanemask[vec_sz]) {
+    for ( ; i < pixels; (i += vec_sz), (x += vec_sz),
+            (mask = vecinfo_t<T>::lanemask[vec_sz]),
+            (n_vec += n_step)) {
         mask &= vecinfo_t<T>::lanemask[sane_min(int(vec_sz), pixels - i)];
 
         // Linear interpolate z for depth buffering
@@ -343,50 +367,97 @@ void fill_mainloop(fill_job &job,
         // Fetch z-buffer values (to see if new pixels are closer)
         F depths = *(F*)depth_io; // _mm256_load_ps(depth_io);
 
-        // Only write pixels that are closer
-        mask &= (T)(z_vec < depths);
-
-        // Step to next {vec_sz} pixels
-        n_vec += n_step;
+        if constexpr (test_z) {
+            // Only write pixels that are closer
+            mask &= (T)(z_vec < depths);
+        }
 
         if (vec_movemask(mask)) {
-            // Linear interpolate the u/w and v/w
-            F v_vec = (n_vec * diff.t.t) + work.first.t.t;
-            F u_vec = (n_vec * diff.t.s) + work.first.t.s;
+            if constexpr (write_z) {
+                // Update depth (get it over with so we can do the real work)
+                F upd_depth = vec_blend(depths, z_vec, mask);
+                *(F*)depth_io = upd_depth;
+            }
 
-            // Linear interpolate 1/w for perspective correction
-            F w_vec = (n_vec * diff.p.w) + work.first.p.w;
+            if constexpr (write_color) {
+                // Fetch existing pixels for masked merge with new pixels
+                T upd_pixels = *(T*)pixel_io;
 
-            // Perspective correction
-            v_vec /= w_vec;
-            u_vec /= w_vec;
+                // Linear interpolate the u/w and v/w
+                F v_vec = (n_vec * diff.t.t) + work.first.t.t;
+                F u_vec = (n_vec * diff.t.s) + work.first.t.s;
 
-            // Scale by texture width and height
-            v_vec *= texture_fh;//texture->fh;
-            u_vec *= texture_fw;//texture->fw;
+                // Linear interpolate 1/w for perspective correction
+                F w_vec = (n_vec * diff.p.w) + work.first.p.w;
 
-            // Convert coordinates to integers
-            T ty_vec = __builtin_convertvector(v_vec, T);
-            T tx_vec = __builtin_convertvector(u_vec, T);
+                // Perspective correction
+                v_vec /= w_vec;
+                u_vec /= w_vec;
 
-            // Wrap coordinates to within texture size
-            ty_vec &= (texture_h-1);//texture->ih-1;
-            tx_vec &= (texture_w-1);//texture->iw-1;
+                F b_vec = (n_vec * diff.c.b) + work.first.c.b;
+                F g_vec = (n_vec * diff.c.g) + work.first.c.g;
+                F r_vec = (n_vec * diff.c.r) + work.first.c.r;
 
-            // Compute pixel offset within texture
-            T tex_off = (ty_vec * texture->iw) + tx_vec;
+                // Scale by texture width and height
+                v_vec *= texture_fh;//texture->fh;
+                u_vec *= texture_fw;//texture->fw;
 
-            // Fetch existing pixels for masked merge with new pixels
-            T upd_pixels = *(T*)pixel_io;
+                // Convert coordinates to integers
+                T ty_vec = convert_to<T>(v_vec);
+                T tx_vec = convert_to<T>(u_vec);
 
-            // Fetch {vec_sz} texels with those {vec_sz} array indices
-            T texels = vec_gather(texture_pixels, tex_off, upd_pixels, mask);
+                // Wrap coordinates to within texture size
+                ty_vec &= (texture_h-1);
+                tx_vec &= (texture_w-1);
 
-            *(T*)pixel_io = texels;
+                // Compute pixel offset within texture
+                T tex_off = (ty_vec * texture_w) + tx_vec;
 
-            F upd_depth = vec_blend(depths, z_vec, mask);
+    #if DEBUG_MIPMAPS
+                T texels = vecinfo_t<T>::vec_broadcast(mipmap_level == 0
+                    ? 0xFF0000FF
+                    : mipmap_level == 1
+                    ? 0xFF00FF00
+                    : mipmap_level == 2
+                    ? 0xFFFF0000
+                    : 0xFFFFFFFF);
+                texels = vec_blend(upd_pixels, texels, mask);
+    #else
+                // Fetch {vec_sz} texels with those {vec_sz} array indices
+                T texels = vec_gather(texture_pixels,
+                    tex_off, upd_pixels, mask);
+    #endif
 
-            *(F*)depth_io = upd_depth;
+                // Translate texel to rgb floating
+                // point for multiplication
+                // with interpolated color
+                T texels_ib = rgb_b(texels);
+                T texels_ig = rgb_g(texels);
+                T texels_ir = rgb_r(texels);
+
+                F texels_fb = convert_to<F>(texels_ib);
+                F texels_fg = convert_to<F>(texels_ig);
+                F texels_fr = convert_to<F>(texels_ir);
+
+                b_vec *= texels_fb;
+                g_vec *= texels_fg;
+                r_vec *= texels_fr;
+
+                texels_ib = convert_to<T>(b_vec);
+                texels_ig = convert_to<T>(g_vec);
+                texels_ir = convert_to<T>(r_vec);
+
+                texels_ib <<= rgba_shift_b;
+                texels_ig <<= rgba_shift_g;
+                texels_ir <<= rgba_shift_r;
+
+                texels_ib |= texels_ig;
+                texels_ib |= texels_ir;
+
+                texels = vec_blend(texels, texels_ib, mask);
+
+                *(T*)pixel_io = texels;
+            }
         }
 
         pixel_io += vec_sz;
@@ -395,8 +466,10 @@ void fill_mainloop(fill_job &job,
 }
 
 using mainloop_pfn = void(*)(
-    fill_job &job, std::pair<scaninfo, scaninfo> const& work,
-    scaninfo diff, float invWidth,
+    fill_job const& __restrict job,
+    std::pair<scaninfo, scaninfo> const& __restrict work,
+    scaninfo const& __restrict diff,
+    glm::vec2 const& tdiff, float invWidth,
     int i, float n, int x, int y, int pixels);
 
 template<typename T, mainloop_pfn mainloop = fill_mainloop<T>>
@@ -406,17 +479,17 @@ static void fill_worker(size_t worker_nr, fill_job &job)
         return job.frame_barrier->arrive_and_expect(task_workers.size());
 
     if (job.clear_row >= 0) {
-        assert(job.clear_row % task_workers.size() == worker_nr);
+        assume(job.clear_row % task_workers.size() == worker_nr);
         return clear_worker(job);
     }
 
     if (job.glyph_index != (uint16_t)-1U) {
-        assert(job.box_y % task_workers.size() == worker_nr);
+        assume(job.box_y % task_workers.size() == worker_nr);
         return glyph_worker(job);
     }
 
     if (job.box_y >= 0) {
-        assert(job.box_y % task_workers.size() == worker_nr);
+        assume(job.box_y % task_workers.size() == worker_nr);
         return box_worker<T>(job);
     }
 
@@ -428,13 +501,15 @@ static void fill_worker(size_t worker_nr, fill_job &job)
         edges[job.back_phase][job.edge_refs.second.diff_idx] *
         job.edge_refs.second.n
     };
+    // Original t diff for mipmap selection
+    glm::vec2 tdiff = work.second.t - work.first.t;
     // Must floor the x coordinates so polygons fit together perfectly
     work.first.p.x = floorf(work.first.p.x);
     work.second.p.x = floorf(work.second.p.x);
     int y = job.box[1];
-    assert(y % task_workers.size() == worker_nr);
+    assume(y % task_workers.size() == worker_nr);
     if (y >= job.fp.height) {
-        assert(!"Clipping messed up");
+        assume(!"Clipping messed up");
         return;
     }
     scaninfo diff = work.second - work.first;
@@ -466,7 +541,7 @@ static void fill_worker(size_t worker_nr, fill_job &job)
     if (x + pixels > job.fp.width)
         pixels = job.fp.width - x;
     if (pixels > 0)
-        mainloop(job, work, diff, invWidth, i, n, x, y, pixels);
+        mainloop(job, work, diff, tdiff, invWidth, i, n, x, y, pixels);
 }
 
 // Function to initialize SDL and create the window
@@ -613,6 +688,19 @@ bool handle_key_down_event(SDL_KeyboardEvent const& e)
         mouselook_pressed[5] = is_keydown;
         break;
 
+    case SDLK_z:
+        if (is_keydown) {
+            mouselook_pitch = 0.0f;
+            mouselook_yaw = 0.0f;
+        }
+
+        break;
+
+    case SDLK_HOME:
+        if (is_keydown)
+            mouselook_pos = { 0, 0, 0 };
+        break;
+
     }
     return true;
 }
@@ -716,9 +804,9 @@ void render()
     int pitch = fb_area.w;
     uint32_t *pixels = back_buffers[phase];
     //time_point render_st = clk::now();
-    assert(pitch < std::numeric_limits<uint16_t>::max());
+    assume(pitch < std::numeric_limits<uint16_t>::max());
     //std::cout << "Drawing to " << pixels << "\n";
-    frame_param fp{};
+    render_target fp{};
     // fp.width = SCREEN_WIDTH - 150;
     // fp.height = SCREEN_HEIGHT - 150;
     fp.width = SCREEN_WIDTH;
@@ -759,7 +847,7 @@ void render()
 
     SDL_Surface *window_surface =
         SDL_GetWindowSurface(render_window);
-    assert(window_surface != nullptr);
+    assume(window_surface != nullptr);
 
     SDL_Rect src = fb_viewport;
     SDL_Rect dest = fb_viewport;
@@ -788,7 +876,7 @@ void render()
 
     int status = blit_to_screen(z_buffer_surface, src,
         window_surface, dest);
-    assert(status == 0);
+    assume(status == 0);
     SDL_FreeSurface(z_buffer_surface);
 #else
     // std::cout << "Presenting " << phase << "\n";
@@ -799,7 +887,7 @@ void render()
 #endif
 
     status = SDL_UpdateWindowSurface(render_window);
-    assert(status == 0);
+    assume(status == 0);
 
     static time_point last_frame;
     time_point fps_time = clk::now();
@@ -881,7 +969,7 @@ static int blit_to_screen(SDL_Surface *surface, SDL_Rect &src,
             surface,
             &src, window_surface, &dest);
     }
-    assert(status == 0);
+    assume(status == 0);
     return status;
 }
 
@@ -903,17 +991,56 @@ bool delete_texture(size_t binding)
     return true;
 }
 
-size_t select_mipmap(glm::vec2 const& diff_of_t)
+int select_mipmap(glm::vec2 const& diff_of_t, float invScreenspaceWidth)
 {
-    float d = std::max(diff_of_t.s, diff_of_t.t);
-    unsigned level = std::max(0, std::ilogbf(d));
-    std::cerr << "Using level " << level << "\n";
-    return std::min(texture->mipmap_levels - 1, level);
+    // How many texels are covered in the horizontal
+    float s_texels = std::abs(diff_of_t.s * texture->fsz.s);
+    // How many texels are covered in the vertical
+    float t_texels = std::abs(diff_of_t.t * texture->fsz.t);
+    // Divide by number of screenspace texels on both axes
+    float s_texels_per_pixel = s_texels * invScreenspaceWidth;
+    float t_texels_per_pixel = t_texels * invScreenspaceWidth;
+    // std::cerr << diff_of_t.s <<
+    //     ' ' << diff_of_t.t <<
+    //     ' ' << invScreenspaceWidth <<
+    //     ' ' << s_texels <<
+    //     ' ' << t_texels <<
+    //     ' ' << s_texels_per_pixel <<
+    //     ' ' << t_texels_per_pixel <<
+    //     '\n';
+    // d is the approximate number of texels per screen pixel in the span
+    float d = std::max(s_texels_per_pixel, t_texels_per_pixel);
+    // Level is max(0, -floor(log2(d)))
+    int level = std::max(0, std::ilogbf(d));
+    // Clamp to number of mipmap levels that exist
+    level = std::min(texture->mipmap_levels - 1, level);
+    // if (level)
+    //     std::cerr << "Using level " << level << "\n";
+    return level;
 }
 
-size_t indexof_mipmap(size_t level)
+uint32_t indexof_mipmap(int level)
 {
-    return (texture->iw * texture->ih * ((1U << (2 * level)) - 1)) / 3;
+    assume(level < 16);
+    // Fill the value with the sign bit of (level - 1) using
+    // sign extension, then invert it, to get all ones
+    // when level is > 0
+    int mask = ~((level - 1) >> 31);
+    // How many bits of the 1010101... pattern are kept for the
+    // fixedpoint multiply by 1.010101... later
+    // If it is going to go negative, wipe it to zero
+    // to avoid negative shift later
+    int kept = 2 * (level - 1) & mask;
+    // Shift fixedpoint 1.01010101... pattern
+    // so the correct number of digits are shifted off the right
+    // to leave the correct number of powers of 4^-x after the 1.
+    // and wipe out the multiplier to zero if level 0
+    uint32_t mul = (0x55555555 >> ((32 - kept) - 2)) & mask;
+    // Do the fixedpoint multiply and do the right shift
+    // to get it back to the whole part, given how much
+    // we scaled it up, when we put those 01 binary digit
+    // pairs after the decimal
+    return (uint32_t)(((uint64_t)texture->lvl0sz * mul) >> kept);
 }
 
 void set_texture(uint32_t const *incoming_pixels,
@@ -925,8 +1052,9 @@ void set_texture(uint32_t const *incoming_pixels,
     texture->pixels = incoming_pixels;
     texture->iw = incoming_w;
     texture->ih = incoming_h;
-    texture->fw = incoming_w;
-    texture->fh = incoming_h;
+    texture->lvl0sz = incoming_w * incoming_h;
+    texture->fsz.s = incoming_w;
+    texture->fsz.t = incoming_h;
     texture->pitch = incoming_pitch;
     texture->free_fn = free_fn;
 
@@ -962,7 +1090,7 @@ int main(int argc, char const *const *argv)
 
     text_init(24);
 
-    if (setup(SCREEN_WIDTH, SCREEN_HEIGHT))
+    if (setup(SCREEN_WIDTH, SCREEN_HEIGHT) == EXIT_FAILURE)
         return EXIT_FAILURE;
 
     atexit(SDL_Quit);
@@ -1033,7 +1161,7 @@ unsigned dedup_edge(scaninfo const& v0)
 }
 
 template<typename C>
-void interp_edge(frame_param const& fp,
+void interp_edge(render_target const& fp,
     scaninfo const& v0, scaninfo const& v1, C&& callback)
 {
     float fheight = v1.p.y - v0.p.y;
@@ -1047,7 +1175,7 @@ void interp_edge(frame_param const& fp,
         p1 = &v0;
         fheight = -fheight;
     }
-    assert(fheight >= 0.0f);
+    assume(fheight >= 0.0f);
     if (fheight < 1.0f)
         return;
     scaninfo diff = *p1 - *p0;
@@ -1095,7 +1223,7 @@ void ensure_scratch(size_t height)
 std::mutex border_lookup_lock;
 std::map<int, std::vector<float>> border_lookup;
 
-void fill_box(frame_param const& fp, int sx, int sy,
+void fill_box(render_target const& fp, int sx, int sy,
     int ex, int ey, float z,
     uint32_t color, int border_radius)
 {
@@ -1116,7 +1244,7 @@ void fill_box(frame_param const& fp, int sx, int sy,
 
     size_t slot = sy % task_workers.size();
     for (int y = sy; y <= ey; ++y) {
-        assert(y % task_workers.size() == slot);
+        assume(y % task_workers.size() == slot);
         task_workers[slot].emplace(false,
             fp, y, sx, sy, ex, ey, z, color, border_table);
 
@@ -1125,7 +1253,7 @@ void fill_box(frame_param const& fp, int sx, int sy,
     }
 }
 
-void texture_triangle(frame_param const& fp,
+void texture_triangle(render_target const& fp,
     scaninfo v0, scaninfo v1, scaninfo v2)
 {
     ensure_scratch(fp.height);
@@ -1221,7 +1349,7 @@ int clipping_needed(glm::vec4 const& v)
 float intercept(float x1, float w1, float x2, float w2)
 {
     float t = (w1 - x1) / ((w1 - x1) - (w2 - x2));
-    assert(t >= 0.0f && t <= 1.0f);
+    assume(t >= 0.0f && t <= 1.0f);
     return t;
 }
 
@@ -1229,7 +1357,7 @@ float intercept(float x1, float w1, float x2, float w2)
 float intercept_neg(float x1, float w1, float x2, float w2)
 {
     float t = (w1 + x1) / ((w1 + x1) - (w2 + x2));
-    assert(t >= 0.0f && t <= 1.0f);
+    assume(t >= 0.0f && t <= 1.0f);
     return t;
 }
 
@@ -1263,7 +1391,7 @@ static void reset_clip_scratch(size_t reserve)
     vout_scratch.reserve(reserve);
 }
 
-static scaninfo *scaninfo_transform(frame_param const& fp,
+static scaninfo *scaninfo_transform(render_target const& fp,
     scaninfo const *vinp, size_t count)
 {
     reset_clip_scratch(count);
@@ -1309,7 +1437,7 @@ static scaninfo *scaninfo_transform(frame_param const& fp,
 }
 
 // Simpler to just say them all twice than to wrap around the index
-static float constexpr (glm::vec4::*plane_lookup[]) = {
+static float constexpr glm::vec4::*plane_lookup[] = {
     &glm::vec4::x,
     &glm::vec4::y,
     &glm::vec4::z,
@@ -1327,7 +1455,7 @@ static float constexpr plane_sign[] = {
     -1.0f
 };
 
-void texture_polygon(frame_param const& frame,
+void texture_polygon(render_target const& frame,
     scaninfo const *user_verts, size_t count)
 {
     scaninfo *verts = scaninfo_transform(frame, user_verts, count);
@@ -1338,7 +1466,7 @@ void texture_polygon(frame_param const& frame,
             vinp_scratch.swap(vout_scratch), vout_scratch.clear(),
             // Switch to the new scratch input
             (verts = vinp_scratch.data()), (count = vinp_scratch.size())) {
-        float (glm::vec4::*field);
+        float glm::vec4::*field;
         clip_masks.clear();
         clip_masks.reserve(count);
         std::transform(verts, verts + count,
@@ -1365,8 +1493,8 @@ void texture_polygon(frame_param const& frame,
             break;
         }
 
-        for (int edge = 0; edge < count; ++edge) {
-            int next = (edge + 1) & -(edge < count - 1);
+        for (int edge = 0; edge < (int)count; ++edge) {
+            int next = (edge + 1) & -(edge < (int)count - 1);
             scaninfo const &vst = verts[edge];
             scaninfo const &ven = verts[next];
             int edge_mask = clip_masks[edge];
@@ -1425,17 +1553,21 @@ void texture_polygon(frame_param const& frame,
         vertex.p.x *= oow;
         vertex.p.y *= oow;
         vertex.p.z *= oow;
+        // +y is up, so flip it vertically
+        vertex.p.y *= -1.0f;
         vertex.p.w = oow;
         vertex.t.s *= oow;
         vertex.t.t *= oow;
         // Scale -1.0-to-1.0 range down to -0.5-to-0.5
         vertex.p.x *= 0.5f;
         vertex.p.y *= 0.5f;
-        vertex.p.z *= 0.5f;
+        //vertex.p.z *= 0.5f;
         // Shift -0.5-to-0.5 over to 0-to-1.0
         vertex.p.x += 0.5f;
         vertex.p.y += 0.5f;
-        vertex.p.z += 0.5f;
+
+        // Leave z as -1 to +1 to get an extra bit of precision
+        //vertex.p.z += 0.5f;
         // Scale to screen coordinate
         vertex.p.x *= frame_width;
         vertex.p.y *= frame_height;
@@ -1446,7 +1578,7 @@ void texture_polygon(frame_param const& frame,
         texture_triangle(frame, verts[0], verts[i], verts[i+1]);
 }
 
-void texture_polygon(frame_param const& frame,
+void texture_polygon(render_target const& frame,
     std::vector<scaninfo> vinp)
 {
     texture_polygon(frame, vinp.data(), vinp.size());
@@ -1465,7 +1597,7 @@ void flip_colors(uint32_t *pixels, int imgw, int imgh)
     }
 }
 
-void parallel_clear(frame_param const &frame, uint32_t color)
+void parallel_clear(render_target const &frame, uint32_t color)
 {
     // One huge work item does all of the scanlines
     // that alias onto that worker, in one go
@@ -1490,7 +1622,7 @@ size_t hash_bytes(void const *data, size_t size)
         std::string_view((char const *)data, size));
 }
 
-void texture_elements(frame_param const &fp,
+void texture_elements(render_target const &fp,
     scaninfo const *user_vertices, size_t vertex_count,
     uint32_t const *elements, size_t element_count)
 {

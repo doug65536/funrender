@@ -13,14 +13,17 @@
 
 PROGRAM = ./funrender
 
+WHICH ?= $(shell which which)
 HOST ?=
-PKG_CONFIG ?= $(HOST)pkg-config
-UNAME ?= uname
+PKG_CONFIG ?= $(shell $(WHICH) $(HOST)pkg-config)
+UNAME ?= $(shell $(WHICH) uname)
 ARCH ?= $(shell $(UNAME) -m)
-NPROC ?= nproc
-RM ?= rm
-SUDO ?= sudo
-SETCAP ?= setcap
+NPROC ?= $(shell $(WHICH) nproc)
+RM ?= $(shell $(WHICH) rm)
+SUDO ?= $(shell $(WHICH) sudo)
+SETCAP ?= $(shell $(WHICH) setcap)
+LLVM_PROFDATA ?= $(shell $(WHICH) llvm-profdata)
+LLVM_COV ?= $(shell $(WHICH) llvm-cov)
 
 CPU_COUNT := $(shell $(NPROC))
 
@@ -41,7 +44,9 @@ endif
 ORIG_CXXFLAGS := $(CXXFLAGS)
 CXXFLAGS := -Wall -std=c++17 -g \
 	$(ORIG_CXXFLAGS) \
-	-Werror=return-type -pthread \
+	-Werror=return-type \
+	-Werror=format \
+	-pthread \
 	-ffast-math -fno-plt \
 	$(VECFLAGS)
 
@@ -83,19 +88,31 @@ OBJS := pool.o funsdl.o funrender.o affinity.o \
 all: funrender
 
 clean:
-	$(RM) -f funrender $(OBJS) *.d
+	$(RM) -f funrender \
+		$(OBJS) \
+		$(OBJS:.o=.d) \
+		$(OBJS:.o=.gcda) \
+		$(OBJS:.o=.gcno) \
+		default.profdata \
+		funrender.profdata \
+		gmon.out \
+		build.log
 
--include *.d
+-include $(OBJS:.o=.d)
 
 SDL_CFLAGS = $(shell $(PKG_CONFIG) --cflags sdl2) \
 	 $(shell $(PKG_CONFIG) --cflags SDL2_ttf)
 SDL_LIBS = $(shell $(PKG_CONFIG) --libs sdl2) \
 	$(shell $(PKG_CONFIG) --libs SDL2_ttf)
 
-CXXFLAGS += $(SDL_CFLAGS)
+GLM_CFLAGS = $(shell $(PKG_CONFIG) --cflags glm)
+GLM_LIBS = $(shell $(PKG_CONFIG) --libs glm)
+
+CXXFLAGS += $(SDL_CFLAGS) $(GLM_CFLAGS)
+LDFLAGS += $(SDL_LIBS) $(GLM_LIBS)
 
 funrender: $(OBJS)
-	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(SDL_LIBS)
+	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS)
 
 grantlargepages: $(PROGRAM)
 	$(SUDO) $(SETCAP) cap_ipc_lock=+ep $(PROGRAM)
@@ -103,7 +120,13 @@ grantlargepages: $(PROGRAM)
 run: $(PROGRAM)
 	$(PROGRAM)
 
+line-profile: default.profdata
+	$(LLVM_COV) show -instr-profile=$< $(PROGRAM)
+
+default.profdata: default.profdata
+	$(LLVM_PROFDATA) merge -o $@ $^
+
 scanview-clang:
 	CXX=clang++ CC=clang scan-build --use-c++=clang++ make -B
 
-.PHONY: all clean run grantlargepages scanview-clang
+.PHONY: all clean run grantlargepages scanview-clang line-profile

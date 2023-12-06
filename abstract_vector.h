@@ -2,8 +2,47 @@
 #include <cstdint>
 #include <type_traits>
 
+template<typename T>
+struct next_bigger;
+
+template<> struct next_bigger<uint8_t> { using type = uint16_t; };
+template<> struct next_bigger<uint16_t> { using type = uint32_t; };
+template<> struct next_bigger<uint32_t> { using type = uint64_t; };
+
+template<> struct next_bigger<int8_t> { using type = int16_t; };
+template<> struct next_bigger<int16_t> { using type = int32_t; };
+template<> struct next_bigger<int32_t> { using type = int64_t; };
+
+template<typename T>
+using next_bigger_t = typename next_bigger<T>::type;
+
+template<typename T>
+struct next_smaller;
+
+template<> struct next_smaller<uint16_t> { using type = uint16_t; };
+template<> struct next_smaller<uint32_t> { using type = uint32_t; };
+template<> struct next_smaller<uint64_t> { using type = uint64_t; };
+
+template<> struct next_smaller<int16_t> { using type = int8_t; };
+template<> struct next_smaller<int32_t> { using type = int16_t; };
+template<> struct next_smaller<int64_t> { using type = int32_t; };
+
+template<typename T>
+using next_smaller_t = typename next_smaller<T>::type;
+
+//
+// 128-bit vectors
+
 using vecu8x16 = uint8_t
-    __attribute__((__vector_size__(sizeof(uint32_t) * 4)));
+    __attribute__((__vector_size__(sizeof(uint8_t) * 16)));
+using veci8x16 = int8_t
+    __attribute__((__vector_size__(sizeof(int8_t) * 16)));
+
+using vecu16x8 = uint16_t
+    __attribute__((__vector_size__(sizeof(uint16_t) * 8)));
+using veci16x8 = int16_t
+    __attribute__((__vector_size__(sizeof(int16_t) * 8)));
+
 using vecu32x4 = uint32_t
     __attribute__((__vector_size__(sizeof(uint32_t) * 4)));
 using veci32x4 = int32_t
@@ -11,8 +50,26 @@ using veci32x4 = int32_t
 using vecf32x4 = float
     __attribute__((__vector_size__(sizeof(float) * 4)));
 
+using vecu64x2 = uint64_t
+    __attribute__((__vector_size__(sizeof(uint64_t) * 2)));
+using veci64x2 = int64_t
+    __attribute__((__vector_size__(sizeof(int64_t) * 2)));
+using vecf64x2 = double
+    __attribute__((__vector_size__(sizeof(double) * 2)));
+
+//
+// 256-bit vectors
+
 using vecu8x32 = uint8_t
-    __attribute__((__vector_size__(sizeof(uint32_t) * 8)));
+    __attribute__((__vector_size__(sizeof(uint8_t) * 32)));
+using veci8x32 = int8_t
+    __attribute__((__vector_size__(sizeof(int8_t) * 32)));
+
+using vecu16x16 = uint16_t
+    __attribute__((__vector_size__(sizeof(uint16_t) * 16)));
+using veci16x16 = int16_t
+    __attribute__((__vector_size__(sizeof(int16_t) * 16)));
+
 using vecu32x8 = uint32_t
     __attribute__((__vector_size__(sizeof(uint32_t) * 8)));
 using veci32x8 = int32_t
@@ -20,14 +77,207 @@ using veci32x8 = int32_t
 using vecf32x8 = float
     __attribute__((__vector_size__(sizeof(float) * 8)));
 
+using veci64x4 = int64_t
+    __attribute__((__vector_size__(sizeof(int64_t) * 4)));
+using vecu64x4 = uint64_t
+    __attribute__((__vector_size__(sizeof(uint64_t) * 4)));
+using vecf64x4 = double
+    __attribute__((__vector_size__(sizeof(double) * 4)));
+
+//
+// 512-bit vectors
+
 using vecu8x64 = uint8_t
-    __attribute__((__vector_size__(sizeof(uint32_t) * 16)));
+    __attribute__((__vector_size__(sizeof(uint8_t) * 64)));
+using veci8x64 = int8_t
+    __attribute__((__vector_size__(sizeof(int8_t) * 64)));
+
+using vecu16x32 = uint16_t
+    __attribute__((__vector_size__(sizeof(uint16_t) * 32)));
+using veci16x32 = int16_t
+    __attribute__((__vector_size__(sizeof(int16_t) * 32)));
+
 using vecu32x16 = uint32_t
     __attribute__((__vector_size__(sizeof(uint32_t) * 16)));
 using veci32x16 = int32_t
     __attribute__((__vector_size__(sizeof(int32_t) * 16)));
 using vecf32x16 = float
     __attribute__((__vector_size__(sizeof(float) * 16)));
+
+using vecu64x8 = uint64_t
+    __attribute__((__vector_size__(sizeof(uint64_t) * 8)));
+using veci64x8 = int64_t
+    __attribute__((__vector_size__(sizeof(int64_t) * 8)));
+using vecf64x8 = double
+    __attribute__((__vector_size__(sizeof(double) * 8)));
+
+//
+// Forward lookup
+
+template<typename T, size_t N> struct vec;
+
+// Define the 128-, 256-, and 512-bit versions of each component type
+
+template<> struct vec<uint8_t, 16> { using type = vecu8x16; };
+template<> struct vec<uint8_t, 32> { using type = vecu8x32; };
+template<> struct vec<uint8_t, 64> { using type = vecu8x64; };
+
+template<> struct vec<int8_t, 16> { using type = veci8x16; };
+template<> struct vec<int8_t, 32> { using type = veci8x32; };
+template<> struct vec<int8_t, 64> { using type = veci8x64; };
+
+template<> struct vec<uint16_t, 8> { using type = vecu16x8; };
+template<> struct vec<uint16_t, 16> { using type = vecu16x16; };
+template<> struct vec<uint16_t, 32> { using type = vecu16x32; };
+
+template<> struct vec<int16_t, 8> { using type = veci16x8; };
+template<> struct vec<int16_t, 16> { using type = veci16x16; };
+template<> struct vec<int16_t, 32> { using type = veci16x32; };
+
+template<> struct vec<uint32_t, 4> { using type = vecu32x4; };
+template<> struct vec<uint32_t, 8> { using type = vecu32x8; };
+template<> struct vec<uint32_t, 16> { using type = vecu32x16; };
+
+template<> struct vec<int32_t, 4> { using type = veci32x4; };
+template<> struct vec<int32_t, 8> { using type = veci32x8; };
+template<> struct vec<int32_t, 16> { using type = veci32x16; };
+
+template<> struct vec<uint64_t, 2> { using type = vecu64x2; };
+template<> struct vec<uint64_t, 4> { using type = vecu64x4; };
+template<> struct vec<uint64_t, 8> { using type = vecu64x8; };
+
+template<> struct vec<int64_t, 2> { using type = veci64x2; };
+template<> struct vec<int64_t, 4> { using type = veci64x4; };
+template<> struct vec<int64_t, 8> { using type = veci64x8; };
+
+template<> struct vec<float, 4> { using type = vecf32x4; };
+template<> struct vec<float, 8> { using type = vecf32x8; };
+template<> struct vec<float, 16> { using type = vecf32x16; };
+
+template<> struct vec<double, 2> { using type = vecf64x2; };
+template<> struct vec<double, 4> { using type = vecf64x4; };
+template<> struct vec<double, 8> { using type = vecf64x8; };
+
+template<typename Tcomp, size_t N>
+using vec_t = typename vec<Tcomp, N>::type;
+
+//
+// Reverse lookup
+
+template<typename T> struct to_vec;
+
+template<> struct to_vec<vecu8x16> { using type = vec<uint8_t, 16>; };
+template<> struct to_vec<veci8x16> { using type = vec<int8_t, 16>; };
+
+template<> struct to_vec<vecu16x8> { using type = vec<uint16_t, 8>; };
+template<> struct to_vec<veci16x8> { using type = vec<int16_t, 8>; };
+
+template<> struct to_vec<vecu32x4> { using type = vec<uint32_t, 4>; };
+template<> struct to_vec<veci32x4> { using type = vec<int32_t, 4>; };
+template<> struct to_vec<vecf32x4> { using type = vec<float, 4>; };
+
+template<> struct to_vec<vecu64x2> { using type = vec<uint64_t, 2>; };
+template<> struct to_vec<veci64x2> { using type = vec<int64_t, 2>; };
+template<> struct to_vec<vecf64x2> { using type = vec<double, 2>; };
+
+template<> struct to_vec<vecu8x32> { using type = vec<uint8_t, 32>; };
+template<> struct to_vec<veci8x32> { using type = vec<int8_t, 32>; };
+
+template<> struct to_vec<vecu16x16> { using type = vec<uint16_t, 16>; };
+template<> struct to_vec<veci16x16> { using type = vec<int16_t, 16>; };
+
+template<> struct to_vec<vecu32x8> { using type = vec<uint32_t, 8>; };
+template<> struct to_vec<veci32x8> { using type = vec<int32_t, 8>; };
+template<> struct to_vec<vecf32x8> { using type = vec<float, 8>; };
+
+template<> struct to_vec<vecu64x4> { using type = vec<uint64_t, 4>; };
+template<> struct to_vec<veci64x4> { using type = vec<int64_t, 4>; };
+template<> struct to_vec<vecf64x4> { using type = vec<double, 4>; };
+
+template<> struct to_vec<vecu8x64> { using type = vec<uint8_t, 64>; };
+template<> struct to_vec<veci8x64> { using type = vec<int8_t, 64>; };
+
+template<> struct to_vec<vecu16x32> { using type = vec<uint16_t, 32>; };
+template<> struct to_vec<veci16x32> { using type = vec<int16_t, 32>; };
+
+template<> struct to_vec<vecu32x16> { using type = vec<uint32_t, 16>; };
+template<> struct to_vec<veci32x16> { using type = vec<int32_t, 16>; };
+template<> struct to_vec<vecf32x16> { using type = vec<float, 16>; };
+
+template<> struct to_vec<vecu64x8> { using type = vec<uint64_t, 8>; };
+template<> struct to_vec<veci64x8> { using type = vec<int64_t, 8>; };
+template<> struct to_vec<vecf64x8> { using type = vec<double, 8>; };
+
+template<typename T>
+using to_vec_t = typename to_vec<T>::type;
+
+template<typename T>
+struct component_of;
+
+template <> struct component_of<vecu8x16> { using type = uint8_t; };
+template <> struct component_of<vecu8x32> { using type = uint8_t; };
+template <> struct component_of<vecu8x64> { using type = uint8_t; };
+
+template <> struct component_of<veci8x16> { using type = int8_t; };
+template <> struct component_of<veci8x32> { using type = int8_t; };
+template <> struct component_of<veci8x64> { using type = int8_t; };
+
+template <> struct component_of<vecu16x8> { using type = uint16_t; };
+template <> struct component_of<vecu16x16> { using type = uint16_t; };
+template <> struct component_of<vecu16x32> { using type = uint16_t; };
+
+template <> struct component_of<veci16x8> { using type = int16_t; };
+template <> struct component_of<veci16x16> { using type = int16_t; };
+template <> struct component_of<veci16x32> { using type = int16_t; };
+
+template <> struct component_of<vecu32x4> { using type = uint32_t; };
+template <> struct component_of<vecu32x8> { using type = uint32_t; };
+template <> struct component_of<vecu32x16> { using type = uint32_t; };
+
+template <> struct component_of<veci32x4> { using type = int32_t; };
+template <> struct component_of<veci32x8> { using type = int32_t; };
+template <> struct component_of<veci32x16> { using type = int32_t; };
+
+template <> struct component_of<vecf32x4> { using type = float; };
+template <> struct component_of<vecf32x8> { using type = float; };
+template <> struct component_of<vecf32x16> { using type = float; };
+
+template <> struct component_of<vecu64x2> { using type = uint64_t; };
+template <> struct component_of<vecu64x4> { using type = uint64_t; };
+template <> struct component_of<vecu64x8> { using type = uint64_t; };
+
+template <> struct component_of<veci64x2> { using type = int64_t; };
+template <> struct component_of<veci64x4> { using type = int64_t; };
+template <> struct component_of<veci64x8> { using type = int64_t; };
+
+template <> struct component_of<vecf64x4> { using type = double; };
+
+template<typename T>
+using component_of_t = typename component_of<T>::type;
+
+template<typename T>
+struct comp_count;
+
+template<> struct comp_count<vecu8x16> { static constexpr size_t value = 16; };
+template<> struct comp_count<veci8x16> { static constexpr size_t value = 16; };
+template<> struct comp_count<vecu16x8> { static constexpr size_t value = 8; };
+template<> struct comp_count<veci16x8> { static constexpr size_t value = 8; };
+template<> struct comp_count<vecu32x4> { static constexpr size_t value = 4; };
+template<> struct comp_count<veci32x4> { static constexpr size_t value = 4; };
+template<> struct comp_count<vecu64x2> { static constexpr size_t value = 2; };
+template<> struct comp_count<veci64x2> { static constexpr size_t value = 2; };
+
+template<> struct comp_count<vecu8x32> { static constexpr size_t value = 32; };
+template<> struct comp_count<veci8x32> { static constexpr size_t value = 32; };
+template<> struct comp_count<vecu16x16> { static constexpr size_t value = 16; };
+template<> struct comp_count<veci16x16> { static constexpr size_t value = 16; };
+template<> struct comp_count<vecu32x8> { static constexpr size_t value = 8; };
+template<> struct comp_count<veci32x8> { static constexpr size_t value = 8; };
+template<> struct comp_count<vecu64x4> { static constexpr size_t value = 4; };
+template<> struct comp_count<veci64x4> { static constexpr size_t value = 4; };
+
+template<typename T>
+constexpr auto comp_count_v = comp_count<T>::value;
 
 template<size_t sz>
 struct vec_info_of_sz;
@@ -133,6 +383,40 @@ struct vec_info_of_sz<8> {
         };
     }
 };
+
+template<typename To, typename From>
+To convert_to(From const& orig)
+{
+    return __builtin_convertvector(orig, To);
+}
+
+template<typename From,
+    typename Tcomp = component_of_t<From>,
+    size_t N = comp_count_v<From>,
+    typename Tbigger = next_bigger_t<Tcomp>,
+    typename Vbigger = vec_t<Tbigger, N / 2>>
+void unpack(Vbigger *lo_result, Vbigger *hi_result, From const& rhs)
+{
+    constexpr auto shift = sizeof(Tbigger) * CHAR_BIT / 2;
+    constexpr auto mask = ~-(Tcomp(1) << shift);
+    *lo_result = (Vbigger)rhs & mask;
+    *hi_result = (Vbigger)(rhs >> shift);
+}
+
+template<typename From,
+    typename Tcomp = component_of_t<From>,
+    size_t N = comp_count_v<From>,
+    typename Tsmaller = next_smaller_t<Tcomp>,
+    typename Vsmaller = vec_t<Tsmaller, N * 2>>
+Vsmaller pack(From const& lo, From const& hi)
+{
+    constexpr auto shift = sizeof(Tsmaller) * CHAR_BIT / 2;
+    constexpr auto mask = ~-(Tcomp(1) << shift);
+    Vsmaller lo_result = (Vsmaller)(lo & mask);
+    Vsmaller hi_result = (Vsmaller)((hi & mask) << shift);
+    lo_result |= hi_result;
+    return lo_result;
+}
 
 template<>
 struct vec_info_of_sz<4> {
@@ -657,3 +941,9 @@ static inline int vec_movemask(veci32x4 i)
 {
     return vec_movemask((vecu32x4)i);
 }
+
+template<typename T>
+struct vec_larger_type;
+
+template<>
+struct vec_larger_type<vecu8x16> { using type = vecu16x8; };

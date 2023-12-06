@@ -20,7 +20,7 @@ extern std::vector<std::vector<fill_job>> fill_job_batches;
 
 extern uint64_t last_fps, smooth_fps;
 
-struct frame_param {
+struct render_target {
     int width{};
     int height{};
     int pitch{};
@@ -30,9 +30,9 @@ struct frame_param {
     unsigned *pixels{};
     float *z_buffer{};
 
-    frame_param() = default;
+    render_target() = default;
 
-    frame_param(int width_, int height_, int pitch_,
+    render_target(int width_, int height_, int pitch_,
             uint32_t *pixels_, float *z_buffer_,
             int left_ = 0, int top_ = 0)
         : width(width_)
@@ -45,12 +45,12 @@ struct frame_param {
     {
     }
 
-    frame_param(frame_param const&) = default;
-    frame_param(frame_param&&) = default;
+    render_target(render_target const&) = default;
+    render_target(render_target&&) = default;
 
-    frame_param subset(int left_, int top_, int width_, int height_)
+    render_target subset(int left_, int top_, int width_, int height_) const
     {
-        frame_param proposed{
+        render_target proposed{
             width_,
             height_,
             pitch,
@@ -74,9 +74,10 @@ extern std::vector<glm::mat4> proj_mtx_stk;
 
 
 struct scaninfo {
-    glm::vec2 t;
     glm::vec4 p;
+    glm::vec2 t;
     glm::vec3 n;
+    glm::vec3 c;
 
     scaninfo() = default;
 
@@ -84,16 +85,19 @@ struct scaninfo {
     scaninfo &operator=(scaninfo const& rhs) = default;
 
     scaninfo(glm::vec4 const& p)
-        : t{}
-        , p{p}
+        : p{p}
+        , t{}
         , n{}
+        , c{}
     {
     }
 
-    scaninfo(glm::vec2 const& t, glm::vec4 const& p, glm::vec3 const& n)
-        : t{t}
-        , p{p}
+    scaninfo(glm::vec2 const& t, glm::vec4 const& p,
+            glm::vec3 const& n, glm::vec3 const& c)
+        : p{p}
+        , t{t}
         , n{n}
+        , c{c}
     {
     }
 
@@ -102,7 +106,8 @@ struct scaninfo {
         return {
             t - rhs.t,
             p - rhs.p,
-            n - rhs.n
+            n - rhs.n,
+            c - rhs.c
         };
     }
 
@@ -111,7 +116,8 @@ struct scaninfo {
         return {
             t + rhs.t,
             p + rhs.p,
-            n + rhs.n
+            n + rhs.n,
+            c + rhs.c
         };
     }
 
@@ -120,13 +126,14 @@ struct scaninfo {
         return {
             t * rhs,
             p * rhs,
-            n * rhs
+            n * rhs,
+            c * rhs
         };
     }
 
     bool operator==(scaninfo const& rhs) const
     {
-        return t == rhs.t && p == rhs.p && n == rhs.n;
+        return t == rhs.t && p == rhs.p && n == rhs.n && c == rhs.c;
     }
 
     bool operator!=(scaninfo const& rhs) const
@@ -149,6 +156,8 @@ struct scaninfo {
         glm::bvec4 pgt = glm::lessThan(rhs.p, p);
         glm::bvec3 nlt = glm::lessThan(n, rhs.n);
         glm::bvec3 ngt = glm::lessThan(rhs.n, n);
+        glm::bvec3 clt = glm::lessThan(c, rhs.c);
+        glm::bvec3 cgt = glm::lessThan(rhs.c, c);
 
         int return_true = -tlt.s;
         int return_false = -tgt.s;
@@ -168,21 +177,31 @@ struct scaninfo {
         return_true |= ~return_false & -plt.w;
         return_false |= ~return_true & -pgt.w;
 
-        return_true |= ~return_false & -nlt.s;
-        return_false |= ~return_true & -ngt.s;
+        return_true |= ~return_false & -nlt.x;
+        return_false |= ~return_true & -ngt.x;
 
-        return_true |= ~return_false & -nlt.t;
-        return_false |= ~return_true & -ngt.t;
+        return_true |= ~return_false & -nlt.y;
+        return_false |= ~return_true & -ngt.y;
 
         return_true |= ~return_false & -nlt.z;
         return_false |= ~return_true & -ngt.z;
+
+        return_true |= ~return_false & -clt.x;
+        return_false |= ~return_true & -cgt.x;
+
+        return_true |= ~return_false & -clt.y;
+        return_false |= ~return_true & -cgt.y;
+
+        return_true |= ~return_false & -clt.z;
+        return_false |= ~return_true & -cgt.z;
 
         return return_true;
     }
 };
 
 template <class T>
-inline void hash_combine(std::size_t& seed, const T& value) {
+inline void hash_combine(std::size_t& seed, const T& value)
+{
     seed ^= std::hash<T>()(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 }
 
@@ -224,13 +243,15 @@ struct scanconv_ent {
 
 extern std::vector<scanconv_ent> scanconv_scratch;
 
-void fill_triangle(frame_param const& fp,
+void fill_triangle(render_target const& fp,
     scaninfo const& v0, scaninfo const& v1,
     scaninfo v2, unsigned color);
-void texture_triangle(frame_param const& fp,
+
+void texture_triangle(render_target const& fp,
     scaninfo v0, scaninfo v1,
     scaninfo v2);
-void fill_box(frame_param const& fp,
+
+void fill_box(render_target const& fp,
     int sx, int sy,
     int ex, int ey, float z,
     uint32_t color, int border_radius = 0);
@@ -242,8 +263,8 @@ void set_texture(uint32_t const *incoming_pixels,
 void flip_colors(uint32_t *pixels, int imgw, int imgh);
 void bind_texture(size_t binding);
 bool delete_texture(size_t binding);
-void parallel_clear(frame_param const &frame, uint32_t color);
-void draw_text(frame_param const &frame, int x, int y, float z,
+void parallel_clear(render_target const &frame, uint32_t color);
+void draw_text(render_target const &frame, int x, int y, float z,
                char const *text_st, char const *text_en = nullptr,
                int wrap_col = -1, uint32_t color = 0xFFFFFFFF);
 
@@ -261,20 +282,20 @@ std::ostream &print_vector(std::ostream &out, glm::vec<L, T, Q> const &v)
     return out.put(']');
 }
 
-void texture_polygon(frame_param const& frame,
+void texture_polygon(render_target const& frame,
     scaninfo const *vinp, size_t count);
 
-void texture_polygon(frame_param const& frame,
+void texture_polygon(render_target const& frame,
     std::vector<scaninfo> vinp);
 
 template<size_t N>
-void texture_polygon(frame_param const& frame,
+void texture_polygon(render_target const& frame,
     std::array<scaninfo, N> const& vinp)
 {
     texture_polygon(frame, vinp.data(), N);
 }
 
-void texture_elements(frame_param const &fp,
+void texture_elements(render_target const &fp,
     scaninfo const *vertices, size_t vertex_count,
     uint32_t const *elements, size_t element_count);
 
@@ -289,7 +310,6 @@ extern float mouselook_pitch_scale;
 extern glm::vec3 mouselook_pos;
 extern glm::vec3 mouselook_vel;
 extern glm::vec3 mouselook_acc;
-extern glm::vec3 mouselook_nz;
 extern glm::vec3 mouselook_px;
 extern glm::vec3 mouselook_py;
 extern glm::vec3 mouselook_pz;
@@ -303,20 +323,20 @@ extern std::vector<std::string> command_line_files;
 
 struct fill_job {
     // barrier
-    fill_job(frame_param const &fp, barrier *frame_barrier)
+    fill_job(render_target const &fp, barrier *frame_barrier)
         : fp(fp)
         , frame_barrier(frame_barrier)
     {}
 
     // clean
-    fill_job(frame_param const &fp, int cleared_row, uint32_t color)
+    fill_job(render_target const &fp, int cleared_row, uint32_t color)
         : fp(fp)
         , clear_row(cleared_row)
         , clear_color(color)
     {}
 
     // span
-    fill_job(frame_param const &fp, int y,
+    fill_job(render_target const &fp, int y,
         edgeinfo const& lhs, edgeinfo const& rhs, unsigned back_phase)
         : fp(fp)
         , edge_refs(lhs, rhs)
@@ -327,7 +347,7 @@ struct fill_job {
     }
 
     // box
-    fill_job(frame_param const& fp, int y,
+    fill_job(render_target const& fp, int y,
             int sx, int sy, int ex, int ey, float z, uint32_t color,
             std::vector<float> const *border_table)
         : fp(fp)
@@ -339,7 +359,7 @@ struct fill_job {
     {}
 
     // glyph (text)
-    fill_job(frame_param const& fp, int y, int sx, int sy, float z,
+    fill_job(render_target const& fp, int y, int sx, int sy, float z,
             size_t glyph_index, uint32_t color)
         : fp(fp)
         , clear_color(color)
@@ -355,7 +375,7 @@ struct fill_job {
         box[3] = (int16_t)(sy + (info.ey - info.sy));
     }
 
-    frame_param fp;
+    render_target fp;
     std::pair<edgeinfo, edgeinfo> edge_refs;
     unsigned back_phase;
     int clear_row = -1;
@@ -377,13 +397,22 @@ extern std::vector<fill_task_worker> task_workers;
 // 31:24 alpha
 
 // packed RGBA conversion readability utilities
-#define rgba(r,g,b,a)       ((b) | ((g) << 8) | ((r) << 16) | ((a) << 24))
+#define rgba_shift_b        0
+#define rgba_shift_g        8
+#define rgba_shift_r        16
+#define rgba_shift_a        24
+#define rgba(r,g,b,a) ( \
+    ((b) << rgba_shift_b) | \
+    ((g) << rgba_shift_g) | \
+    ((r) << rgba_shift_r) | \
+    ((a) << rgba_shift_a) \
+    )
 #define rgb0(r,g,b)         (rgba((r), (g), (b), 0))
 #define rgb(r,g,b)          (rgba((r), (g), (b), 0xff))
-#define rgb_a(pixel)        (((pixel)>>24)&0xFF)
-#define rgb_r(pixel)        (((pixel)>>16)&0xFF)
-#define rgb_g(pixel)        (((pixel)>>8)&0xFF)
-#define rgb_b(pixel)        (((pixel))&0xFF)
+#define rgb_b(pixel)        (((pixel) >> rgba_shift_b) & 0xff)
+#define rgb_g(pixel)        (((pixel) >> rgba_shift_g) & 0xff)
+#define rgb_r(pixel)        (((pixel) >> rgba_shift_r) & 0xff)
+#define rgb_a(pixel)        (((pixel) >> rgba_shift_a) & 0xff)
 
-size_t select_mipmap(glm::vec2 const& diff_of_t);
-size_t indexof_mipmap(size_t level);
+int select_mipmap(glm::vec2 const& diff_of_t, float invWidth);
+uint32_t indexof_mipmap(int level);
