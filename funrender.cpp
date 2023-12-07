@@ -49,14 +49,15 @@ size_t elap_graph_tail;
 
 #include "stb_image.h"
 
-void cleanup(int width, int height)
+void cleanup(render_ctx *ctx, int width, int height)
 {
 
 }
 
 obj_file_loader::loaded_mesh mesh;
 
-uint32_t *load_image(int *ret_width, int *ret_height,
+uint32_t *load_image(render_ctx *ctx,
+    int *ret_width, int *ret_height,
     char const *pathname,
     std::string *fail_reason = nullptr)
 {
@@ -148,13 +149,13 @@ uint32_t *load_image(int *ret_width, int *ret_height,
     *ret_width = imgw;
     *ret_height = imgh;
 
-    set_texture(pixels, imgw, imgh, imgw, sizes.size(), free);
+    set_texture(ctx, pixels, imgw, imgh, imgw, sizes.size(), free);
     free(orig_pixels);
 
     return pixels;
 }
 
-int setup(int width, int height)
+int setup(render_ctx *ctx, int width, int height)
 {
     if (!command_line_files.empty()) {
         obj_file_loader obj;
@@ -165,7 +166,7 @@ int setup(int width, int height)
     }
 
     std::string fail_reason;
-    uint32_t *pixels = load_image(
+    uint32_t *pixels = load_image(ctx,
         &width, &height, "earthmap1k.png", &fail_reason);
     if (!pixels) {
         std::cerr << "Texture load failed!\n";
@@ -331,7 +332,7 @@ uint64_t handle_input(render_target& frame, time_point this_time)
     return us_since_last;
 }
 
-void user_frame(render_target& frame)
+void user_frame(render_target& frame, render_ctx *ctx)
 {
     time_point this_time = clk::now();
 
@@ -352,10 +353,10 @@ void user_frame(render_target& frame)
 
     set_transform(proj_mtx_stk.back(), view_mtx_stk.back());
 
-    set_light_enable(0, true);
-    set_light_pos(0, glm::vec4(mouselook_pos, 1.0f));
-    set_light_diffuse(0, {0.1f, 0.1f, 0.1f});
-    set_light_specular(0, {0.8f, 0.8f, 0.8f}, 1.0f);
+    set_light_enable(ctx, 0, true);
+    set_light_pos(ctx, 0, glm::vec4(mouselook_pos, 1.0f));
+    set_light_diffuse(ctx, 0, {0.1f, 0.1f, 0.1f});
+    set_light_specular(ctx, 0, {0.8f, 0.8f, 0.8f}, 1.0f);
 
     format_text(frame, -20, 80, -1.0f, 0xff562233, "Test");
 
@@ -363,7 +364,7 @@ void user_frame(render_target& frame)
 
     if (!mesh.vertices.empty()) {
         // time_point huge_st = clk::now();
-        texture_elements(frame,
+        texture_elements(frame, ctx,
             mesh.vertices.data(), mesh.vertices.size(),
             mesh.elements.data(), mesh.elements.size());
         // time_point huge_en = clk::now();
@@ -518,7 +519,7 @@ void user_frame(render_target& frame)
             glm::normalize(glm::vec3(v[1] - v[0])),
             glm::normalize(glm::vec3(v[2] - v[0])));
 
-        texture_polygon(frame, std::array<scaninfo, 3>{
+        texture_polygon(frame, ctx, std::array<scaninfo, 3>{
             scaninfo{t1, v[0], n1, c1},
             scaninfo{t2, v[1], n2, c2},
             scaninfo{t3, v[2], n3, c3}

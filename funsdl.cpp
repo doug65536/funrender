@@ -28,31 +28,32 @@
 #include "fastminmax.h"
 #include "text.h"
 
-static constexpr size_t light_count = 8;
+struct render_ctx {
+    static constexpr size_t light_count = 8;
 
-static glm::vec3 light_ambient;
+    glm::vec3 light_ambient;
 
-static bool light_enable[light_count];
+    bool light_enable[light_count];
 
-// If w=0, light is directional at infinity
-// If w=1, light is at the specific position
-static glm::vec4 light_position[light_count];
+    // If w=0, light is directional at infinity
+    // If w=1, light is at the specific position
+    glm::vec4 light_position[light_count];
 
-// Diffuse color
-static glm::vec3 light_diffuse[light_count];
+    // Diffuse color
+    glm::vec3 light_diffuse[light_count];
 
-// Specular color
-static glm::vec3 light_specular[light_count];
+    // Specular color
+    glm::vec3 light_specular[light_count];
 
-// Spot direction in viewspace
-static glm::vec3 light_spot_dir[light_count];
+    // Spot direction in viewspace
+    glm::vec3 light_spot_dir[light_count];
 
-// x is spot cutoff, y is spot exponent, z is shininess
-static glm::vec3 light_info[light_count];
+    // x is spot cutoff, y is spot exponent, z is shininess
+    glm::vec3 light_info[light_count];
+};
 
 static int blit_to_screen(SDL_Surface *surface, SDL_Rect &src,
     SDL_Surface *window_surface, SDL_Rect &dest);
-
 
 uint64_t last_fps;
 uint64_t smooth_fps;
@@ -120,7 +121,7 @@ std::vector<fill_task_worker> task_workers;
 
 std::vector<scanconv_ent> scanconv_scratch;
 
-void user_frame(render_target& frame);
+void user_frame(render_target& frame, render_ctx *ctx);
 
 uint32_t draw_nr;
 
@@ -173,10 +174,10 @@ struct texture_info {
 };
 
 using scoped_lock = std::unique_lock<std::mutex>;
-static std::mutex textures_lock;
 using textures_map = std::map<size_t, texture_info>;
-static textures_map textures;
-static texture_info *texture;
+std::mutex textures_lock;
+textures_map textures;
+texture_info *texture;
 
 __attribute__((__noinline__))
 void clear_worker(fill_job &job)
@@ -821,7 +822,7 @@ bool handleEvents() {
 }
 
 // Function to render to the current framebuffer
-void render()
+void render(render_ctx *ctx)
 {
     size_t phase = back_phase;
     size_t prev_phase = (phase == 0)
@@ -851,7 +852,7 @@ void render()
     // fp.left = 75;
     fp.z_buffer = z_buffer;
 
-    user_frame(fp);//.subset(42, 33, 420, 420));
+    user_frame(fp, ctx);//.subset(42, 33, 420, 420));
 
     // std::cout << "Enqueue barrier at end of phase " << phase << "\n";
     //time_point qbarrier_st = clk::now();
@@ -1076,54 +1077,60 @@ uint32_t indexof_mipmap(int level)
     return (uint32_t)(((uint64_t)texture->lvl0sz * mul) >> kept);
 }
 
-void set_light_enable(size_t light_nr, bool enable)
+void set_light_enable(render_ctx *ctx,
+    size_t light_nr, bool enable)
 {
-    if (light_nr < light_count)
-        light_enable[light_nr] = enable;
+    if (light_nr < ctx->light_count)
+        ctx->light_enable[light_nr] = enable;
 }
 
-void set_light_pos(size_t light_nr, glm::vec4 const &pos)
+void set_light_pos(render_ctx *ctx,
+    size_t light_nr, glm::vec4 const &pos)
 {
-    if (light_nr < light_count) {
+    if (light_nr < ctx->light_count) {
         if (pos.w) {
             // It is a position, do the transform,
             // but preserve their w (positional flag)
-            light_position[light_nr] = glm::vec4(
+            ctx->light_position[light_nr] = glm::vec4(
                 glm::vec3(view_mtx_stk.back() * pos), pos.w);
         } else {
             // It is a direction
-            light_position[light_nr] = glm::vec4(
+            ctx->light_position[light_nr] = glm::vec4(
                 glm::mat3(view_mtx_stk.back()) * glm::vec3(pos), pos.w);
         }
     }
 }
 
-void set_light_spot(size_t light_nr,
+void set_light_spot(render_ctx *ctx,
+    size_t light_nr,
     glm::vec3 const& dir, float cutoff, float exponent)
 {
-    if (light_nr < light_count) {
-        light_spot_dir[light_nr] =
+    if (light_nr < ctx->light_count) {
+        ctx->light_spot_dir[light_nr] =
             glm::mat3(view_mtx_stk.back()) * dir;
-        light_info[light_nr].x = cutoff;
-        light_info[light_nr].y = exponent;
+        ctx->light_info[light_nr].x = cutoff;
+        ctx->light_info[light_nr].y = exponent;
     }
 }
 
-void set_light_diffuse(size_t light_nr, glm::vec3 color)
+void set_light_diffuse(render_ctx *ctx,
+    size_t light_nr, glm::vec3 color)
 {
-    if (light_nr < light_count)
-        light_diffuse[light_nr] = color;
+    if (light_nr < ctx->light_count)
+        ctx->light_diffuse[light_nr] = color;
 }
 
-void set_light_specular(size_t light_nr, glm::vec3 color, float shininess)
+void set_light_specular(render_ctx *ctx,
+    size_t light_nr, glm::vec3 color, float shininess)
 {
-    if (light_nr < light_count) {
-        light_specular[light_nr] = color;
-        light_info[light_nr].z = shininess;
+    if (light_nr < ctx->light_count) {
+        ctx->light_specular[light_nr] = color;
+        ctx->light_info[light_nr].z = shininess;
     }
 }
 
-void set_texture(uint32_t const *incoming_pixels,
+void set_texture(render_ctx *ctx,
+    uint32_t const *incoming_pixels,
     int incoming_w, int incoming_h, int incoming_pitch,
     int incoming_levels, void (*free_fn)(void *p))
 {
@@ -1141,14 +1148,17 @@ void set_texture(uint32_t const *incoming_pixels,
     texture->mipmap_levels = incoming_levels;
 }
 
-int setup(int width, int height);
-void cleanup(int width, int height);
+int setup(render_ctx *ctx, int width, int height);
+void cleanup(render_ctx *ctx, int width, int height);
 
 bool measure;
 std::vector<std::string> command_line_files;
 
 int main(int argc, char const *const *argv)
 {
+    std::unique_ptr<render_ctx> ctx =
+        std::make_unique<render_ctx>();
+
     for (int i = 1; i < argc; ++i)
     {
         if (!strcmp(argv[i], "--measure")) {
@@ -1170,7 +1180,7 @@ int main(int argc, char const *const *argv)
 
     text_init(24);
 
-    if (setup(SCREEN_WIDTH, SCREEN_HEIGHT) == EXIT_FAILURE)
+    if (setup(ctx.get(), SCREEN_WIDTH, SCREEN_HEIGHT) == EXIT_FAILURE)
         return EXIT_FAILURE;
 
     atexit(SDL_Quit);
@@ -1183,14 +1193,14 @@ int main(int argc, char const *const *argv)
             break;
 
         // Render to the current framebuffer
-        render();
+        render(ctx.get());
 
         ++count;
         if (measure && count >= 400)
             break;
     }
 
-    cleanup(SCREEN_WIDTH, SCREEN_HEIGHT);
+    cleanup(ctx.get(), SCREEN_WIDTH, SCREEN_HEIGHT);
 
     for (textures_map::value_type const &tex : textures) {
         if (tex.second.free_fn)
@@ -1468,24 +1478,24 @@ static glm::vec3 reflect(glm::vec3 const& incident, glm::vec3 const& normal)
     return incident - 2.0f * glm::dot(incident, normal) * normal;
 }
 
-static void light_vertex(scaninfo &v)
+static void light_vertex(render_ctx *ctx, scaninfo &v)
 {
-    glm::vec3 color = light_ambient;
+    glm::vec3 color = ctx->light_ambient;
 
-    for (size_t light = 0; light < light_count; ++light) {
-        if (!light_enable[light])
+    for (size_t light = 0; light < ctx->light_count; ++light) {
+        if (!ctx->light_enable[light])
             continue;
-        if (light_position[light].w) {
+        if (ctx->light_position[light].w) {
             // Light has a position
             glm::vec3 vec_to_light = glm::normalize(
-                glm::vec3(light_position[light]) - glm::vec3(v.p));
+                glm::vec3(ctx->light_position[light]) - glm::vec3(v.p));
 
             // Diffuse
             float diffuse_cos = std::max(0.0f, glm::dot(vec_to_light, v.n));
 
-            float &spotlight_cutoff = light_info[light].x;
-            float &spotlight_exponent = light_info[light].y;
-            float &light_shininess = light_info[light].z;
+            float &spotlight_cutoff = ctx->light_info[light].x;
+            float &spotlight_exponent = ctx->light_info[light].y;
+            float &light_shininess = ctx->light_info[light].z;
 
             if (spotlight_cutoff != 1.0f) {
                 // Spot light cutoff
@@ -1497,12 +1507,12 @@ static void light_vertex(scaninfo &v)
                     float spotlight_effect = std::pow(
                         (diffuse_cos / spotlight_cutoff),
                         spotlight_exponent);
-                    color += light_diffuse[light] *
+                    color += ctx->light_diffuse[light] *
                         spotlight_effect;
                 }
             } else {
                 // Omnidirectional light
-                color += light_diffuse[light] * diffuse_cos;
+                color += ctx->light_diffuse[light] * diffuse_cos;
             }
 
             // Compute the specular reflection
@@ -1511,7 +1521,7 @@ static void light_vertex(scaninfo &v)
             float specular_cos = std::pow(std::max(reflection.z, 0.0f),
                 light_shininess);
 
-            color += light_specular[light] * specular_cos;
+            color += ctx->light_specular[light] * specular_cos;
         } else {
             // Light is at infinity and only has a direction
         }
@@ -1520,7 +1530,8 @@ static void light_vertex(scaninfo &v)
     v.c *= color;
 }
 
-static scaninfo *scaninfo_transform(render_target& fp,
+static scaninfo *scaninfo_transform(
+    render_target& fp, render_ctx *ctx,
     scaninfo const *vinp, size_t count)
 {
     fp.reset_clip_scratch(count);
@@ -1528,7 +1539,7 @@ static scaninfo *scaninfo_transform(render_target& fp,
     if (count < parallel_threshold) {
         for (size_t i = 0; i < count; ++i) {
             scaninfo s = view_mtx_stk.back() * vinp[i];
-            light_vertex(s);
+            light_vertex(ctx, s);
             s = proj_mtx_stk.back() * s;
             fp.vinp_scratch.emplace_back(s);
         }
@@ -1552,7 +1563,7 @@ static scaninfo *scaninfo_transform(render_target& fp,
                     for (size_t i = chunk_start;
                             i < count && i < chunk_start + chunk_sz; ++i) {
                         fp.vinp_scratch[i] = view_mtx_stk.back() * vinp[i];
-                        light_vertex(fp.vinp_scratch[i]);
+                        light_vertex(ctx, fp.vinp_scratch[i]);
                         fp.vinp_scratch[i] = proj_mtx_stk.back() * fp.vinp_scratch[i];
                     }
                 }
@@ -1589,10 +1600,11 @@ static float constexpr plane_sign[] = {
     -1.0f
 };
 
-void texture_polygon(render_target& fp,
+void texture_polygon(render_target& fp, render_ctx *ctx,
     scaninfo const *user_verts, size_t count)
 {
-    scaninfo *verts = scaninfo_transform(fp, user_verts, count);
+    scaninfo *verts = scaninfo_transform(
+        fp, ctx, user_verts, count);
 
     // Do 0-to-1, 1-to-2, 2-to-0
     for (size_t plane = 0; plane < 6 && fp.vinp_scratch.size() >= 3; ++plane,
@@ -1712,10 +1724,10 @@ void texture_polygon(render_target& fp,
         texture_triangle(fp, verts[0], verts[i], verts[i+1]);
 }
 
-void texture_polygon(render_target& frame,
+void texture_polygon(render_target& frame, render_ctx *ctx,
     std::vector<scaninfo> vinp)
 {
-    texture_polygon(frame, vinp.data(), vinp.size());
+    texture_polygon(frame, ctx, vinp.data(), vinp.size());
 }
 
 void flip_colors(uint32_t *pixels, int imgw, int imgh)
@@ -1756,12 +1768,12 @@ size_t hash_bytes(void const *data, size_t size)
         std::string_view((char const *)data, size));
 }
 
-void texture_elements(render_target &fp,
+void texture_elements(render_target &fp, render_ctx *ctx,
     scaninfo const *user_vertices, size_t vertex_count,
     uint32_t const *elements, size_t element_count)
 {
     // Transform into clipping scratch
-    scaninfo *vertices = scaninfo_transform(fp, user_vertices, vertex_count);
+    scaninfo *vertices = scaninfo_transform(fp, ctx, user_vertices, vertex_count);
     // Take it and give clipping scratch the empty vector
     std::vector<scaninfo> xfv;
     // todo: 64 is a bit arbitrary, consider updating after analysis

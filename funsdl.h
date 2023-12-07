@@ -10,6 +10,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <SDL.h>
 #include "barrier.h"
+
+struct render_ctx;
+
 struct fill_job;
 
 void ensure_scratch(size_t height);
@@ -283,7 +286,8 @@ void fill_box(render_target& fp,
     int ex, int ey, float z,
     uint32_t color, int border_radius = 0);
 
-void set_texture(uint32_t const *incoming_pixels,
+void set_texture(render_ctx *ctx,
+    uint32_t const *incoming_pixels,
     int incoming_w, int incoming_h, int incoming_pitch,
     int incoming_levels, void (*free_fn)(void*));
 
@@ -309,20 +313,20 @@ std::ostream &print_vector(std::ostream &out, glm::vec<L, T, Q> const &v)
     return out.put(']');
 }
 
-void texture_polygon(render_target& frame,
+void texture_polygon(render_target& frame, render_ctx *ctx,
     scaninfo const *vinp, size_t count);
 
-void texture_polygon(render_target& frame,
+void texture_polygon(render_target& frame, render_ctx *ctx,
     std::vector<scaninfo> vinp);
 
 template<size_t N>
-void texture_polygon(render_target& frame,
+void texture_polygon(render_target& frame, render_ctx *ctx,
     std::array<scaninfo, N> const& vinp)
 {
-    texture_polygon(frame, vinp.data(), N);
+    texture_polygon(frame, ctx, vinp.data(), N);
 }
 
-void texture_elements(render_target &fp,
+void texture_elements(render_target &fp, render_ctx *ctx,
     scaninfo const *vertices, size_t vertex_count,
     uint32_t const *elements, size_t element_count);
 
@@ -444,9 +448,14 @@ extern std::vector<fill_task_worker> task_workers;
 int select_mipmap(glm::vec2 const& diff_of_t, float invWidth);
 uint32_t indexof_mipmap(int level);
 
-void set_light_enable(size_t light_nr, bool enable);
-void set_light_pos(size_t light_nr, glm::vec4 const &pos);
-void set_light_spot(size_t light_nr,
+void set_light_enable(render_ctx *ctx,
+    size_t light_nr, bool enable);
+void set_light_pos(render_ctx *ctx,
+    size_t light_nr, glm::vec4 const &pos);
+void set_light_spot(render_ctx *ctx,
+    size_t light_nr,
     glm::vec3 const& dir, float cutoff, float exponent);
-void set_light_diffuse(size_t light_nr, glm::vec3 color);
-void set_light_specular(size_t light_nr, glm::vec3 color, float shininess);
+void set_light_diffuse(render_ctx *ctx,
+    size_t light_nr, glm::vec3 color);
+void set_light_specular(render_ctx *ctx,
+    size_t light_nr, glm::vec3 color, float shininess);
