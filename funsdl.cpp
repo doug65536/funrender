@@ -30,6 +30,10 @@
 
 static constexpr size_t light_count = 8;
 
+static glm::vec3 light_ambient;
+
+static bool light_enable[light_count];
+
 // If w=0, light is directional at infinity
 // If w=1, light is at the specific position
 static glm::vec4 light_position[light_count];
@@ -43,8 +47,8 @@ static glm::vec3 light_specular[light_count];
 // Spot direction in viewspace
 static glm::vec3 light_spot_dir[light_count];
 
-// x is spot cutoff, y is spot exponent
-static glm::vec2 light_spot_info[light_count];
+// x is spot cutoff, y is spot exponent, z is shininess
+static glm::vec3 light_info[light_count];
 
 static int blit_to_screen(SDL_Surface *surface, SDL_Rect &src,
     SDL_Surface *window_surface, SDL_Rect &dest);
@@ -64,9 +68,9 @@ bool mouselook_enabled;
 bool mouselook_pressed[6]; // WASDRF
 // float mouselook_yaw = 0.0f;
 // float mouselook_pitch = 0.0f;
-float mouselook_pitch = -3.72f;
-float mouselook_yaw = -0.42f;
-float mouselook_yaw_scale = 0.01f;
+float mouselook_pitch = 1.23f;
+float mouselook_yaw = -2.92f;
+float mouselook_yaw_scale = -0.01f;
 float mouselook_pitch_scale = -0.01f;
 glm::vec3 mouselook_pos{1029.33,0,388.895};
 glm::vec3 mouselook_vel;
@@ -461,6 +465,18 @@ void fill_mainloop(
                 g_vec *= texels_fg;
                 r_vec *= texels_fr;
 
+                // Clamp
+                constexpr auto bytemax = vecinfo_t<F>::vec_broadcast(255.0f);
+                constexpr auto bytemin = vecinfo_t<F>::vec_broadcast(0.0f);
+
+                b_vec = min(b_vec, bytemax);
+                g_vec = min(g_vec, bytemax);
+                r_vec = min(r_vec, bytemax);
+
+                b_vec = max(b_vec, bytemin);
+                g_vec = max(g_vec, bytemin);
+                r_vec = max(r_vec, bytemin);
+
                 texels_ib = convert_to<T>(b_vec);
                 texels_ig = convert_to<T>(g_vec);
                 texels_ir = convert_to<T>(r_vec);
@@ -737,12 +753,13 @@ bool handle_mouse_motion_event(SDL_MouseMotionEvent const& e)
         mouselook_pitch += e.yrel * mouselook_pitch_scale;
         while (mouselook_yaw > M_PIf)
             mouselook_yaw -= M_PIf * 2.0f;
-        while (mouselook_pitch > M_PI)
-            mouselook_pitch -= M_PIf * 2.0f;
         while (mouselook_yaw < -M_PIf)
             mouselook_yaw += M_PIf * 2.0f;
-        while (mouselook_pitch < -M_PIf)
-            mouselook_pitch += M_PIf * 2.0f;
+
+        if (mouselook_pitch > M_PI_2f)
+            mouselook_pitch = M_PI_2f;
+        if (mouselook_pitch < -M_PI_2)
+            mouselook_pitch = -M_PI_2f;
     }
     return true;
 }
@@ -1061,21 +1078,36 @@ uint32_t indexof_mipmap(int level)
     return (uint32_t)(((uint64_t)texture->lvl0sz * mul) >> kept);
 }
 
-void set_light_pos(size_t light_nr, glm::vec4 const &pos)
+void set_light_enable(size_t light_nr, bool enable)
 {
     if (light_nr < light_count)
-        light_position[light_nr] = view_mtx_stk.back() * pos;
+        light_enable[light_nr] = enable;
+}
+
+void set_light_pos(size_t light_nr, glm::vec4 const &pos)
+{
+    if (light_nr < light_count) {
+        if (pos.w) {
+            // It is a position, do the transform,
+            // but preserve their w (positional flag)
+            light_position[light_nr] = glm::vec4(
+                glm::vec3(view_mtx_stk.back() * pos), pos.w);
+        } else {
+            // It is a direction
+            light_position[light_nr] = glm::vec4(
+                glm::mat3(view_mtx_stk.back()) * glm::vec3(pos), pos.w);
+        }
+    }
 }
 
 void set_light_spot(size_t light_nr,
     glm::vec3 const& dir, float cutoff, float exponent)
 {
     if (light_nr < light_count) {
-        light_spot_dir[light_nr] = glm::mat3(view_mtx_stk.back()) * dir;
-        light_spot_info[light_nr] = {
-            cutoff,
-            exponent
-        };
+        light_spot_dir[light_nr] =
+            glm::mat3(view_mtx_stk.back()) * dir;
+        light_info[light_nr].x = cutoff;
+        light_info[light_nr].y = exponent;
     }
 }
 
@@ -1085,10 +1117,12 @@ void set_light_diffuse(size_t light_nr, glm::vec3 color)
         light_diffuse[light_nr] = color;
 }
 
-void set_light_specular(size_t light_nr, glm::vec3 color)
+void set_light_specular(size_t light_nr, glm::vec3 color, float shininess)
 {
-    if (light_nr < light_count)
+    if (light_nr < light_count) {
         light_specular[light_nr] = color;
+        light_info[light_nr].z = shininess;
+    }
 }
 
 void set_texture(uint32_t const *incoming_pixels,
@@ -1307,8 +1341,6 @@ void texture_triangle(render_target const& fp,
     ensure_scratch(fp.height);
     size_t dir;
 
-
-
     glm::vec3 p0{v0.p};
     glm::vec3 p1{v1.p};
     glm::vec3 p2{v2.p};
@@ -1423,7 +1455,7 @@ void set_transform(glm::mat4 const& proj_mtx,
     glm::mat4 const& view_mtx)
 {
     glm::mat4 vmt = view_mtx;
-    //glm::transpose(vmt);
+    vmt = glm::transpose(vmt);
     mouselook_px = glm::vec3{vmt[0]};
     mouselook_py = glm::vec3{vmt[1]};
     mouselook_pz = glm::vec3{vmt[2]};
@@ -1441,6 +1473,63 @@ static void reset_clip_scratch(size_t reserve)
     vout_scratch.reserve(reserve);
 }
 
+static glm::vec3 reflect(glm::vec3 const& incident, glm::vec3 const& normal)
+{
+    return incident - 2.0f * glm::dot(incident, normal) * normal;
+}
+
+static void light_vertex(scaninfo &v)
+{
+    glm::vec3 color = light_ambient;
+
+    for (size_t light = 0; light < light_count; ++light) {
+        if (!light_enable[light])
+            continue;
+        if (light_position[light].w) {
+            // Light has a position
+            glm::vec3 vec_to_light = glm::normalize(
+                glm::vec3(light_position[light]) - glm::vec3(v.p));
+
+            // Diffuse
+            float diffuse_cos = std::max(0.0f, glm::dot(vec_to_light, v.n));
+
+            float &spotlight_cutoff = light_info[light].x;
+            float &spotlight_exponent = light_info[light].y;
+            float &light_shininess = light_info[light].z;
+
+            if (spotlight_cutoff != 1.0f) {
+                // Spot light cutoff
+                if (diffuse_cos > spotlight_cutoff) {
+                    // Outside umbra (lit volume)
+                    diffuse_cos = 0;
+                } else {
+                    // Inside penumbra (fading volume)
+                    float spotlight_effect = std::pow(
+                        (diffuse_cos / spotlight_cutoff),
+                        spotlight_exponent);
+                    color += light_diffuse[light] *
+                        spotlight_effect;
+                }
+            } else {
+                // Omnidirectional light
+                color += light_diffuse[light] * diffuse_cos;
+            }
+
+            // Compute the specular reflection
+            glm::vec3 reflection = reflect(-vec_to_light, v.n);
+
+            float specular_cos = std::pow(std::max(reflection.z, 0.0f),
+                light_shininess);
+
+            color += light_specular[light] * specular_cos;
+        } else {
+            // Light is at infinity and only has a direction
+        }
+    }
+
+    v.c *= color;
+}
+
 static scaninfo *scaninfo_transform(render_target const& fp,
     scaninfo const *vinp, size_t count)
 {
@@ -1448,7 +1537,9 @@ static scaninfo *scaninfo_transform(render_target const& fp,
     size_t const parallel_threshold = 4096;
     if (count < parallel_threshold) {
         for (size_t i = 0; i < count; ++i) {
-            scaninfo s = combined_xform * vinp[i];
+            scaninfo s = view_mtx_stk.back() * vinp[i];
+            light_vertex(s);
+            s = proj_mtx_stk.back() * s;
             vinp_scratch.emplace_back(s);
         }
     } else {
@@ -1469,8 +1560,11 @@ static scaninfo *scaninfo_transform(render_target const& fp,
                 }
                 if (chunk_start < count) {
                     for (size_t i = chunk_start;
-                            i < count && i < chunk_start + chunk_sz; ++i)
-                        vinp_scratch[i] = combined_xform * vinp[i];
+                            i < count && i < chunk_start + chunk_sz; ++i) {
+                        vinp_scratch[i] = view_mtx_stk.back() * vinp[i];
+                        light_vertex(vinp_scratch[i]);
+                        vinp_scratch[i] = proj_mtx_stk.back() * vinp_scratch[i];
+                    }
                 }
             }
         };

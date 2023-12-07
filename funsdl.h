@@ -423,4 +423,9 @@ extern std::vector<fill_task_worker> task_workers;
 int select_mipmap(glm::vec2 const& diff_of_t, float invWidth);
 uint32_t indexof_mipmap(int level);
 
-void set_light_pos(size_t light_nr, glm::vec4 const& pos);
+void set_light_enable(size_t light_nr, bool enable);
+void set_light_pos(size_t light_nr, glm::vec4 const &pos);
+void set_light_spot(size_t light_nr,
+    glm::vec3 const& dir, float cutoff, float exponent);
+void set_light_diffuse(size_t light_nr, glm::vec3 color);
+void set_light_specular(size_t light_nr, glm::vec3 color, float shininess);

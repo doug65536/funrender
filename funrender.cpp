@@ -279,9 +279,9 @@ uint64_t handle_input(render_target const& frame, time_point this_time)
 
     mouselook_acc.y = 0.0f;
     if (mouselook_pressed[4] && !mouselook_pressed[5])
-        mouselook_acc.y = -4.0f;
-    else if (mouselook_pressed[5] && !mouselook_pressed[4])
         mouselook_acc.y = 4.0f;
+    else if (mouselook_pressed[5] && !mouselook_pressed[4])
+        mouselook_acc.y = -4.0f;
     // else if (mouselook_pressed[5] && mouselook_pressed[4])
     //     mouselook_acc.y = 0.91f;
     // else
@@ -326,7 +326,7 @@ uint64_t handle_input(render_target const& frame, time_point this_time)
     format_text(frame, -16,
         frame.height - (64+1*24), -1.0f,
         0xFFFFFFFF, "z.x=%f, z.y=%f, z.z=%f ",
-        mouselook_pz.x, mouselook_px.z, mouselook_pz.z);
+        mouselook_pz.x, mouselook_pz.y, mouselook_pz.z);
 
     return us_since_last;
 }
@@ -352,6 +352,11 @@ void user_frame(render_target const& frame)
 
     set_transform(proj_mtx_stk.back(), view_mtx_stk.back());
 
+    set_light_enable(0, true);
+    set_light_pos(0, glm::vec4(mouselook_pos, 1.0f));
+    set_light_diffuse(0, {0.1f, 0.1f, 0.1f});
+    set_light_specular(0, {0.8f, 0.8f, 0.8f}, 1.0f);
+
     format_text(frame, -20, 80, -1.0f, 0xff562233, "Test");
 
     uint64_t us_since_last = handle_input(frame, this_time);
@@ -370,7 +375,7 @@ void user_frame(render_target const& frame)
         " million elements per second\n";
 #else
 
-    size_t constexpr triangle_cnt = 10;
+    size_t constexpr triangle_cnt = 400;
     static float ang[triangle_cnt];
     static float xofs[triangle_cnt];
     static float yofs[triangle_cnt];
@@ -497,11 +502,12 @@ void user_frame(render_target const& frame)
 
         glm::vec2 t1{0,0};
         glm::vec3 n1{};
-        glm::vec3 c1{1.0f, 0.0f, 0.0f};
+        //glm::vec3 c1{1.0f, 0.0f, 0.0f};
+        glm::vec3 c1{1.0f};
 
         glm::vec2 t2{1,1};
         glm::vec3 n2{};
-        glm::vec3 c2{0.0f, 1.0f, 0.0f};
+        glm::vec3 c2{1.0f};
 
         glm::vec2 t3{1,0};
         glm::vec3 n3{};
