@@ -39,11 +39,11 @@ struct render_target;
 #include "funsdl.h"
 
 __attribute__((__format__(printf, 6, 7)))
-void format_text(render_target const& frame,
+void format_text(render_target& frame,
     int x, int y, float z, uint32_t color,
     char const *format, ...);
 
 __attribute__((__format__(printf, 6, 0)))
-void format_text_v(render_target const& frame,
+void format_text_v(render_target& frame,
     int x, int y, float z, uint32_t color,
     char const *format, va_list ap);

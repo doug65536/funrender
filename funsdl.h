@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <SDL.h>
+#include "barrier.h"
 struct fill_job;
 
 void ensure_scratch(size_t height);
@@ -19,59 +20,6 @@ extern std::vector<std::vector<fill_job>> fill_job_batches;
 #include "text.h"
 
 extern uint64_t last_fps, smooth_fps;
-
-struct render_target {
-    int width{};
-    int height{};
-    int pitch{};
-    int left{};
-    int top{};
-    // alignment gap here
-    unsigned *pixels{};
-    float *z_buffer{};
-
-    render_target() = default;
-
-    render_target(int width_, int height_, int pitch_,
-            uint32_t *pixels_, float *z_buffer_,
-            int left_ = 0, int top_ = 0)
-        : width(width_)
-        , height(height_)
-        , pitch(pitch_)
-        , left(left_)
-        , top(top_)
-        , pixels(pixels_)
-        , z_buffer(z_buffer_)
-    {
-    }
-
-    render_target(render_target const&) = default;
-    render_target(render_target&&) = default;
-
-    render_target subset(int left_, int top_, int width_, int height_) const
-    {
-        render_target proposed{
-            width_,
-            height_,
-            pitch,
-            pixels,
-            z_buffer,
-            left + left_,
-            top + top_
-        };
-
-        proposed.left = std::min(proposed.left, width);
-        proposed.top = std::min(proposed.top, height);
-        proposed.width = std::min(width, proposed.width - proposed.left);
-        proposed.height = std::min(height, proposed.height - proposed.top);
-
-        return proposed;
-    }
-};
-
-extern std::vector<glm::mat4> view_mtx_stk;
-extern std::vector<glm::mat4> proj_mtx_stk;
-
 
 struct scaninfo {
     glm::vec4 p;
@@ -211,8 +159,6 @@ inline void hash_combine(std::size_t& seed, const T& value)
     seed ^= std::hash<T>()(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 }
 
-size_t hash_bytes(void const *data, size_t size);
-
 template<>
 struct std::hash<scaninfo> {
     std::size_t operator()(scaninfo const& rhs) const
@@ -236,6 +182,81 @@ struct std::hash<scaninfo> {
     }
 };
 
+struct render_target {
+    int width{};
+    int height{};
+    int pitch{};
+    int left{};
+    int top{};
+    // alignment gap here
+    unsigned *pixels{};
+    float *z_buffer{};
+
+    render_target() = default;
+
+    render_target(int width_, int height_, int pitch_,
+            uint32_t *pixels_, float *z_buffer_,
+            int left_ = 0, int top_ = 0)
+        : width(width_)
+        , height(height_)
+        , pitch(pitch_)
+        , left(left_)
+        , top(top_)
+        , pixels(pixels_)
+        , z_buffer(z_buffer_)
+    {
+    }
+
+    render_target(render_target const&) = default;
+    render_target(render_target&&) = default;
+
+    render_target subset(int left_, int top_, int width_, int height_) const
+    {
+        render_target proposed{
+            width_,
+            height_,
+            pitch,
+            pixels,
+            z_buffer,
+            left + left_,
+            top + top_
+        };
+
+        proposed.left = std::min(proposed.left, width);
+        proposed.top = std::min(proposed.top, height);
+        proposed.width = std::min(width, proposed.width - proposed.left);
+        proposed.height = std::min(height, proposed.height - proposed.top);
+
+        return proposed;
+    }
+
+    void reset_clip_scratch(size_t reserve)
+    {
+        vout_scratch.clear();
+        vinp_scratch.clear();
+        vinp_scratch.reserve(reserve);
+        vout_scratch.reserve(reserve);
+    }
+
+    std::vector<scaninfo> vinp_scratch;
+    std::vector<scaninfo> vout_scratch;
+
+    std::vector<scaninfo> edges;
+    std::unordered_map<scaninfo, unsigned> edges_lookup;
+
+    barrier present_barrier;
+
+    uint32_t *back_buffer{};
+
+    SDL_Surface * back_surface{};
+    bool back_surface_locked{};
+};
+
+extern std::vector<glm::mat4> view_mtx_stk;
+extern std::vector<glm::mat4> proj_mtx_stk;
+
+size_t hash_bytes(void const *data, size_t size);
+
 struct edgeinfo {
     unsigned edge_idx;
     unsigned diff_idx;
@@ -249,15 +270,15 @@ struct scanconv_ent {
 
 extern std::vector<scanconv_ent> scanconv_scratch;
 
-void fill_triangle(render_target const& fp,
+void fill_triangle(render_target& fp,
     scaninfo const& v0, scaninfo const& v1,
     scaninfo v2, unsigned color);
 
-void texture_triangle(render_target const& fp,
+void texture_triangle(render_target& fp,
     scaninfo v0, scaninfo v1,
     scaninfo v2);
 
-void fill_box(render_target const& fp,
+void fill_box(render_target& fp,
     int sx, int sy,
     int ex, int ey, float z,
     uint32_t color, int border_radius = 0);
@@ -269,8 +290,8 @@ void set_texture(uint32_t const *incoming_pixels,
 void flip_colors(uint32_t *pixels, int imgw, int imgh);
 void bind_texture(size_t binding);
 bool delete_texture(size_t binding);
-void parallel_clear(render_target const &frame, uint32_t color);
-void draw_text(render_target const &frame, int x, int y, float z,
+void parallel_clear(render_target &frame, uint32_t color);
+void draw_text(render_target &frame, int x, int y, float z,
                char const *text_st, char const *text_en = nullptr,
                int wrap_col = -1, uint32_t color = 0xFFFFFFFF);
 
@@ -288,20 +309,20 @@ std::ostream &print_vector(std::ostream &out, glm::vec<L, T, Q> const &v)
     return out.put(']');
 }
 
-void texture_polygon(render_target const& frame,
+void texture_polygon(render_target& frame,
     scaninfo const *vinp, size_t count);
 
-void texture_polygon(render_target const& frame,
+void texture_polygon(render_target& frame,
     std::vector<scaninfo> vinp);
 
 template<size_t N>
-void texture_polygon(render_target const& frame,
+void texture_polygon(render_target& frame,
     std::array<scaninfo, N> const& vinp)
 {
     texture_polygon(frame, vinp.data(), N);
 }
 
-void texture_elements(render_target const &fp,
+void texture_elements(render_target &fp,
     scaninfo const *vertices, size_t vertex_count,
     uint32_t const *elements, size_t element_count);
 
@@ -329,20 +350,20 @@ extern std::vector<std::string> command_line_files;
 
 struct fill_job {
     // barrier
-    fill_job(render_target const &fp, barrier *frame_barrier)
+    fill_job(render_target &fp, barrier *frame_barrier)
         : fp(fp)
         , frame_barrier(frame_barrier)
     {}
 
     // clean
-    fill_job(render_target const &fp, int cleared_row, uint32_t color)
+    fill_job(render_target &fp, int cleared_row, uint32_t color)
         : fp(fp)
         , clear_row(cleared_row)
         , clear_color(color)
     {}
 
     // span
-    fill_job(render_target const &fp, int y,
+    fill_job(render_target &fp, int y,
         edgeinfo const& lhs, edgeinfo const& rhs, unsigned back_phase)
         : fp(fp)
         , edge_refs(lhs, rhs)
@@ -353,7 +374,7 @@ struct fill_job {
     }
 
     // box
-    fill_job(render_target const& fp, int y,
+    fill_job(render_target& fp, int y,
             int sx, int sy, int ex, int ey, float z, uint32_t color,
             std::vector<float> const *border_table)
         : fp(fp)
@@ -365,7 +386,7 @@ struct fill_job {
     {}
 
     // glyph (text)
-    fill_job(render_target const& fp, int y, int sx, int sy, float z,
+    fill_job(render_target& fp, int y, int sx, int sy, float z,
             size_t glyph_index, uint32_t color)
         : fp(fp)
         , clear_color(color)
@@ -381,7 +402,7 @@ struct fill_job {
         box[3] = (int16_t)(sy + (info.ey - info.sy));
     }
 
-    render_target fp;
+    render_target& fp;
     std::pair<edgeinfo, edgeinfo> edge_refs;
     unsigned back_phase;
     int clear_row = -1;

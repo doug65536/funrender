@@ -254,7 +254,7 @@ int measure_text(char const *format, ...)
 }
 
 __attribute__((__format__(printf, 6, 0)))
-void format_text_v(render_target const& frame,
+void format_text_v(render_target& frame,
     int x, int y, float z, uint32_t color,
     char const *format, va_list ap)
 {
@@ -272,7 +272,7 @@ void format_text_v(render_target const& frame,
 }
 
 __attribute__((__format__(printf, 6, 7)))
-void format_text(render_target const& frame,
+void format_text(render_target& frame,
     int x, int y, float z, uint32_t color,
     char const *format, ...)
 {
@@ -282,7 +282,7 @@ void format_text(render_target const& frame,
     va_end(ap);
 }
 
-void draw_text(render_target const& frame, int x, int y, float z,
+void draw_text(render_target& frame, int x, int y, float z,
     char32_t const *text_st, char32_t const *text_en,
     int wrap_col, uint32_t color)
 {
@@ -343,7 +343,7 @@ void draw_text(render_target const& frame, int x, int y, float z,
     }
 }
 
-void draw_text(render_target const& frame, int x, int y, float z,
+void draw_text(render_target& frame, int x, int y, float z,
     char const *utf8_st, char const *utf8_en,
     int wrap_col, uint32_t color)
 {

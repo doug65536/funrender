@@ -58,8 +58,6 @@ uint64_t last_fps;
 uint64_t smooth_fps;
 
 constexpr size_t phase_count = 2;
-std::vector<scaninfo> edges[phase_count];
-std::unordered_map<scaninfo, unsigned> edges_lookup[phase_count];
 
 int window_w, window_h;
 
@@ -115,8 +113,6 @@ void dump_histogram(int height)
 }
 #endif
 
-static barrier present_barriers[phase_count];
-
 ssize_t find_glyph(int glyph);
 
 
@@ -124,7 +120,7 @@ std::vector<fill_task_worker> task_workers;
 
 std::vector<scanconv_ent> scanconv_scratch;
 
-void user_frame(render_target const& frame);
+void user_frame(render_target& frame);
 
 uint32_t draw_nr;
 
@@ -140,8 +136,6 @@ const int SCREEN_HEIGHT = 540;
 
 // Global SDL variables
 SDL_Window* render_window = nullptr;
-SDL_Surface * back_surfaces[phase_count];
-bool back_surface_locked[phase_count];
 struct free_deleter {
     void operator()(void*p) const noexcept
     {
@@ -159,7 +153,6 @@ struct huge_free_deleter {
     size_t size = 0;
 };
 std::unique_ptr<uint32_t, huge_free_deleter> back_buffer_memory;
-uint32_t *back_buffers[phase_count];
 render_target render_targets[phase_count];
 // SDL_Surface * window_surface = nullptr;
 
@@ -528,11 +521,11 @@ static void fill_worker(size_t worker_nr, fill_job &job)
     }
 
     std::pair<scaninfo, scaninfo> work = {
-        edges[job.back_phase][job.edge_refs.first.edge_idx] +
-        edges[job.back_phase][job.edge_refs.first.diff_idx] *
+        job.fp.edges[job.edge_refs.first.edge_idx] +
+        job.fp.edges[job.edge_refs.first.diff_idx] *
         job.edge_refs.first.n,
-        edges[job.back_phase][job.edge_refs.second.edge_idx] +
-        edges[job.back_phase][job.edge_refs.second.diff_idx] *
+        job.fp.edges[job.edge_refs.second.edge_idx] +
+        job.fp.edges[job.edge_refs.second.diff_idx] *
         job.edge_refs.second.n
     };
     // Original t diff for mipmap selection
@@ -654,19 +647,23 @@ bool initSDL(int width, int height) {
     //z_buffer = (float*)(back_buffer_memory.get() + 3 * frame_pixels);
     z_buffer = (float*)back_buffer_memory.get();
     for (size_t i = 0; i < phase_count; ++i) {
-        edges[i].reserve(262144);
-        back_buffers[i] = back_buffer_memory.get() + (1 + i) * frame_pixels;
-        back_surfaces[i] = SDL_CreateRGBSurfaceFrom(back_buffers[i],
-            fb_area.w, fb_area.h, 32, sizeof(uint32_t) * fb_area.w,
-            rgba(0,0,0xFF,0), rgba(0,0xFF,0,0),
-            rgba(0xFF,0,0,0), rgba(0,0,0,0xFF));
-        if (back_surfaces[i] == nullptr) {
+        render_targets[i].edges.reserve(262144);
+        render_targets[i].back_buffer =
+            back_buffer_memory.get() + (1 + i) * frame_pixels;
+        render_targets[i].back_surface =
+            SDL_CreateRGBSurfaceFrom(
+                render_targets[i].back_buffer,
+                fb_area.w, fb_area.h, 32, sizeof(uint32_t) * fb_area.w,
+                rgba(0,0,0xFF,0), rgba(0,0xFF,0,0),
+                rgba(0xFF,0,0,0), rgba(0,0,0,0xFF));
+        if (render_targets[i].back_surface == nullptr) {
             std::cerr << "Back surface could not be created!"
                 " SDL_Error: " << SDL_GetError() << std::endl;
             return false;
         }
 
-        SDL_SetSurfaceBlendMode(back_surfaces[i], SDL_BLENDMODE_NONE);
+        SDL_SetSurfaceBlendMode(
+            render_targets[i].back_surface, SDL_BLENDMODE_NONE);
     }
 
     return true;
@@ -830,18 +827,18 @@ void render()
     size_t prev_phase = (phase == 0)
         ? (phase_count - 1)
         : (phase - 1);
-    if (SDL_MUSTLOCK(back_surfaces[phase])) {
-        back_surface_locked[phase] = true;
-        SDL_LockSurface(back_surfaces[phase]);
+    render_target& fp = render_targets[phase];
+    if (SDL_MUSTLOCK(fp.back_surface)) {
+        fp.back_surface_locked = true;
+        SDL_LockSurface(fp.back_surface);
     }
 
     // std::cout << "Rendering phase " << phase << '\n';
     int pitch = fb_area.w;
-    uint32_t *pixels = back_buffers[phase];
+    uint32_t *pixels = fp.back_buffer;
     //time_point render_st = clk::now();
     assume(pitch < std::numeric_limits<uint16_t>::max());
     //std::cout << "Drawing to " << pixels << "\n";
-    render_target fp{};
     // fp.width = SCREEN_WIDTH - 150;
     // fp.height = SCREEN_HEIGHT - 150;
     fp.width = SCREEN_WIDTH;
@@ -858,26 +855,26 @@ void render()
 
     // std::cout << "Enqueue barrier at end of phase " << phase << "\n";
     //time_point qbarrier_st = clk::now();
-    present_barriers[phase].reset();
+    fp.present_barrier.reset();
     for (fill_task_worker &worker : task_workers)
-        worker.emplace(true, fp, &present_barriers[phase]);
+        worker.emplace(true, fp, &fp.present_barrier);
     //time_point qbarrier_en = clk::now();
 
 
-    if (back_surface_locked[phase]) {
-        back_surface_locked[phase] = false;
-        SDL_UnlockSurface(back_surfaces[phase]);
+    if (fp.back_surface_locked) {
+        fp.back_surface_locked = false;
+        SDL_UnlockSurface(fp.back_surface);
     }
 
     // Wait for the previous completion barrier to finish
 
     //time_point wait_st = clk::now();
-    present_barriers[prev_phase].wait();
+    render_targets[prev_phase].present_barrier.wait();
     //time_point wait_en = clk::now();
 
-    if (back_surface_locked[prev_phase]) {
-        back_surface_locked[prev_phase] = false;
-        SDL_UnlockSurface(back_surfaces[prev_phase]);
+    if (render_targets[prev_phase].back_surface_locked) {
+        render_targets[prev_phase].back_surface_locked = false;
+        SDL_UnlockSurface(render_targets[prev_phase].back_surface);
     }
 
     SDL_Surface *window_surface =
@@ -915,7 +912,8 @@ void render()
     SDL_FreeSurface(z_buffer_surface);
 #else
     // std::cout << "Presenting " << phase << "\n";
-    int status = blit_to_screen(back_surfaces[prev_phase], src,
+    int status = blit_to_screen(
+        render_targets[prev_phase].back_surface, src,
         window_surface, dest);
     //std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
@@ -969,8 +967,8 @@ void render()
     }
 #endif
 
-    edges[phase].clear();
-    edges_lookup[phase].clear();
+    fp.edges.clear();
+    fp.edges_lookup.clear();
 }
 
 static int blit_to_screen(SDL_Surface *surface, SDL_Rect &src,
@@ -1202,8 +1200,10 @@ int main(int argc, char const *const *argv)
     task_workers.clear();
 
     // Cleanup and exit
-    for (size_t i = 0; i < phase_count; ++i)
-        SDL_FreeSurface(back_surfaces[i]);
+    for (size_t i = 0; i < phase_count; ++i) {
+        SDL_FreeSurface(render_targets[i].back_surface);
+        render_targets[i].back_surface = nullptr;
+    }
     //SDL_DestroyRenderer(gRenderer);
     SDL_DestroyWindow(render_window);
     SDL_Quit();
@@ -1231,19 +1231,19 @@ void simple_edge(int x1, int y1, int x2, int y2, T callback)
     }
 }
 
-unsigned dedup_edge(scaninfo const& v0)
+unsigned dedup_edge(render_target &fp, scaninfo const& v0)
 {
-    std::vector<scaninfo> &edge_table = edges[back_phase];
+    std::vector<scaninfo> &edge_table = fp.edges;
 
     std::pair<std::unordered_map<scaninfo, unsigned>::iterator, bool> ins =
-        edges_lookup[back_phase].emplace(v0, (unsigned)edge_table.size());
+        fp.edges_lookup.emplace(v0, (unsigned)edge_table.size());
     if (ins.second)
         edge_table.emplace_back(v0);
     return ins.first->second;
 }
 
 template<typename C>
-void interp_edge(render_target const& fp,
+void interp_edge(render_target& fp,
     scaninfo const& v0, scaninfo const& v1, C&& callback)
 {
     float fheight = v1.p.y - v0.p.y;
@@ -1271,8 +1271,8 @@ void interp_edge(render_target const& fp,
     // Wipe y to zero if it is negative
     y &= -(y >= 0);
 
-    unsigned edge_idx = dedup_edge(*p0);
-    unsigned diff_idx = dedup_edge(diff);
+    unsigned edge_idx = dedup_edge(fp, *p0);
+    unsigned diff_idx = dedup_edge(fp, diff);
     for (ey = sane_min(ey, fp.height-1);
         y <= ey; ++y, n += invHeight)
     {
@@ -1305,7 +1305,7 @@ void ensure_scratch(size_t height)
 std::mutex border_lookup_lock;
 std::map<int, std::vector<float>> border_lookup;
 
-void fill_box(render_target const& fp, int sx, int sy,
+void fill_box(render_target& fp, int sx, int sy,
     int ex, int ey, float z,
     uint32_t color, int border_radius)
 {
@@ -1335,7 +1335,7 @@ void fill_box(render_target const& fp, int sx, int sy,
     }
 }
 
-void texture_triangle(render_target const& fp,
+void texture_triangle(render_target& fp,
     scaninfo v0, scaninfo v1, scaninfo v2)
 {
     ensure_scratch(fp.height);
@@ -1462,16 +1462,6 @@ void set_transform(glm::mat4 const& proj_mtx,
     combined_xform = proj_mtx * view_mtx;
 }
 
-static std::vector<scaninfo> vinp_scratch;
-static std::vector<scaninfo> vout_scratch;
-
-static void reset_clip_scratch(size_t reserve)
-{
-    vout_scratch.clear();
-    vinp_scratch.clear();
-    vinp_scratch.reserve(reserve);
-    vout_scratch.reserve(reserve);
-}
 
 static glm::vec3 reflect(glm::vec3 const& incident, glm::vec3 const& normal)
 {
@@ -1530,22 +1520,22 @@ static void light_vertex(scaninfo &v)
     v.c *= color;
 }
 
-static scaninfo *scaninfo_transform(render_target const& fp,
+static scaninfo *scaninfo_transform(render_target& fp,
     scaninfo const *vinp, size_t count)
 {
-    reset_clip_scratch(count);
+    fp.reset_clip_scratch(count);
     size_t const parallel_threshold = 4096;
     if (count < parallel_threshold) {
         for (size_t i = 0; i < count; ++i) {
             scaninfo s = view_mtx_stk.back() * vinp[i];
             light_vertex(s);
             s = proj_mtx_stk.back() * s;
-            vinp_scratch.emplace_back(s);
+            fp.vinp_scratch.emplace_back(s);
         }
     } else {
         std::atomic_size_t next_chunk{0};
         size_t constexpr chunk_sz = parallel_threshold;
-        vinp_scratch.resize(count);
+        fp.vinp_scratch.resize(count);
         auto worker = [&] {
             // Keep going if it looks like there is another
             // chunk available for processing
@@ -1561,9 +1551,9 @@ static scaninfo *scaninfo_transform(render_target const& fp,
                 if (chunk_start < count) {
                     for (size_t i = chunk_start;
                             i < count && i < chunk_start + chunk_sz; ++i) {
-                        vinp_scratch[i] = view_mtx_stk.back() * vinp[i];
-                        light_vertex(vinp_scratch[i]);
-                        vinp_scratch[i] = proj_mtx_stk.back() * vinp_scratch[i];
+                        fp.vinp_scratch[i] = view_mtx_stk.back() * vinp[i];
+                        light_vertex(fp.vinp_scratch[i]);
+                        fp.vinp_scratch[i] = proj_mtx_stk.back() * fp.vinp_scratch[i];
                     }
                 }
             }
@@ -1577,7 +1567,7 @@ static scaninfo *scaninfo_transform(render_target const& fp,
         for (auto &worker : threads)
             worker.join();
     }
-    return vinp_scratch.data();
+    return fp.vinp_scratch.data();
 }
 
 // Simpler to just say them all twice than to wrap around the index
@@ -1599,17 +1589,17 @@ static float constexpr plane_sign[] = {
     -1.0f
 };
 
-void texture_polygon(render_target const& frame,
+void texture_polygon(render_target& fp,
     scaninfo const *user_verts, size_t count)
 {
-    scaninfo *verts = scaninfo_transform(frame, user_verts, count);
+    scaninfo *verts = scaninfo_transform(fp, user_verts, count);
 
     // Do 0-to-1, 1-to-2, 2-to-0
-    for (size_t plane = 0; plane < 6 && vinp_scratch.size() >= 3; ++plane,
+    for (size_t plane = 0; plane < 6 && fp.vinp_scratch.size() >= 3; ++plane,
             // Swap in/out, clear out
-            vinp_scratch.swap(vout_scratch), vout_scratch.clear(),
+            fp.vinp_scratch.swap(fp.vout_scratch), fp.vout_scratch.clear(),
             // Switch to the new scratch input
-            (verts = vinp_scratch.data()), (count = vinp_scratch.size())) {
+            (verts = fp.vinp_scratch.data()), (count = fp.vinp_scratch.size())) {
         float glm::vec4::*field;
         clip_masks.clear();
         clip_masks.reserve(count);
@@ -1677,19 +1667,19 @@ void texture_polygon(render_target const& frame,
 #endif
 
                 if (!(edge_mask & (1 << plane)))
-                    vout_scratch.emplace_back(vst);
+                    fp.vout_scratch.emplace_back(vst);
                 scaninfo new_vertex;
                 new_vertex = ((ven - vst) * t) + vst;
-                vout_scratch.emplace_back(new_vertex);
+                fp.vout_scratch.emplace_back(new_vertex);
             } else if (!(edge_mask & (1 << plane))) {
-                vout_scratch.emplace_back(vst);
+                fp.vout_scratch.emplace_back(vst);
             }
         }
     }
 
     // Project to screenspace
-    float frame_width = frame.width;
-    float frame_height = frame.height;
+    float frame_width = fp.width;
+    float frame_height = fp.height;
     for (size_t i = 0; i < count; ++i) {
         scaninfo &vertex = verts[i];
         // Divide x, y, and z by w, and store inverse w in w
@@ -1719,10 +1709,10 @@ void texture_polygon(render_target const& frame,
 
     // Make a fan from the polygon vertices
     for (size_t i = 1; i + 1 < count; ++i)
-        texture_triangle(frame, verts[0], verts[i], verts[i+1]);
+        texture_triangle(fp, verts[0], verts[i], verts[i+1]);
 }
 
-void texture_polygon(render_target const& frame,
+void texture_polygon(render_target& frame,
     std::vector<scaninfo> vinp)
 {
     texture_polygon(frame, vinp.data(), vinp.size());
@@ -1741,7 +1731,7 @@ void flip_colors(uint32_t *pixels, int imgw, int imgh)
     }
 }
 
-void parallel_clear(render_target const &frame, uint32_t color)
+void parallel_clear(render_target &frame, uint32_t color)
 {
     // One huge work item does all of the scanlines
     // that alias onto that worker, in one go
@@ -1766,7 +1756,7 @@ size_t hash_bytes(void const *data, size_t size)
         std::string_view((char const *)data, size));
 }
 
-void texture_elements(render_target const &fp,
+void texture_elements(render_target &fp,
     scaninfo const *user_vertices, size_t vertex_count,
     uint32_t const *elements, size_t element_count)
 {
@@ -1776,7 +1766,7 @@ void texture_elements(render_target const &fp,
     std::vector<scaninfo> xfv;
     // todo: 64 is a bit arbitrary, consider updating after analysis
     xfv.reserve(64);
-    xfv.swap(vinp_scratch);
+    xfv.swap(fp.vinp_scratch);
 
     size_t constexpr vertices_per_triangle = 3;
 

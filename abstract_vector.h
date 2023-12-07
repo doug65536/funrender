@@ -565,9 +565,14 @@ static inline vecf32x4 min(vecf32x4 const& a, vecf32x4 const& b)
 __attribute__((__always_inline__))
 static inline vecf32x8 min(vecf32x8 const& a, vecf32x8 const& b)
 {
-#if defined(__SSE2__)
+#if defined(__AVX2__)
+    return cast_to<vecf32x8>(_mm256_min_ps(
+        cast_to<__m256>(a),
+        cast_to<__m256>(b)));
+#elif defined(__SSE2__)
     auto lo = cast_to<vecf32x4>(_mm_min_ps(
-        cast_to<__m128>(vec_lo(a)), cast_to<__m128>(vec_lo(b))));
+        cast_to<__m128>(vec_lo(a)),
+        cast_to<__m128>(vec_lo(b))));
     auto hi = cast_to<vecf32x4>(_mm_min_ps(
         cast_to<__m128>(vec_hi(a)), cast_to<__m128>(vec_hi(b))));
     return vec_combine(lo, hi);
@@ -592,7 +597,11 @@ static inline vecf32x8 min(vecf32x8 const& a, vecf32x8 const& b)
 __attribute__((__always_inline__))
 static inline vecf32x8 max(vecf32x8 const& a, vecf32x8 const& b)
 {
-#if defined(__SSE2__)
+#if defined(__AVX2__)
+    return cast_to<vecf32x8>(_mm256_max_ps(
+        cast_to<__m256>(a),
+        cast_to<__m256>(b)));
+#elif defined(__SSE2__)
     auto lo = cast_to<vecf32x4>(_mm_max_ps(
         cast_to<__m128>(vec_lo(a)),
         cast_to<__m128>(vec_lo(b))));

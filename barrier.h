@@ -1,6 +1,7 @@
 #pragma once
 #include <cassert>
 #include <mutex>
+#include <condition_variable>
 #include <chrono>
 #include "perf.h"
 
@@ -51,8 +52,14 @@ public:
     }
 
 private:
-    mutable std::mutex barrier_lock;
-    mutable std::condition_variable all_reached_cond;
+    mutable std::unique_ptr<std::mutex> barrier_lock_ptr =
+        std::make_unique<std::mutex>();
+    std::mutex &barrier_lock = *barrier_lock_ptr;
+    mutable std::unique_ptr<std::condition_variable>
+        all_reached_cond_ptr = std::make_unique<
+            std::condition_variable>();
+    std::condition_variable &all_reached_cond =
+        *all_reached_cond_ptr;
     // Initial wait is instantly done
     int count = -1;
     int expect = -1;

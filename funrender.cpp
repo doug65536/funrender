@@ -160,7 +160,7 @@ int setup(int width, int height)
         obj_file_loader obj;
         obj.load(command_line_files.front().c_str());
         mesh = obj.instantiate();
-        mesh.scale(100.0f);
+        mesh.scale(0.1f);
         mesh.dump_info(std::cerr);
     }
 
@@ -175,7 +175,7 @@ int setup(int width, int height)
     // float fovy = glm::radians(60.0f);
     // float aspect = (float)width / height;
     float znear = 1.0f;
-    float zfar = 4097.0f;
+    float zfar = 1048576.0f;
 
     glm::mat4 pm = proj_mtx_stk.emplace_back(
         glm::frustum(-1.0f, 1.0f, -1.0f, 1.0f, znear, zfar));
@@ -236,14 +236,14 @@ static unsigned int cubeIndices[] = {
 
 
 
-void new_render_frame(render_target const& frame)
+void new_render_frame(render_target& frame)
 {
     parallel_clear(frame, 0xFF561234);
 
 
 }
 
-uint64_t handle_input(render_target const& frame, time_point this_time)
+uint64_t handle_input(render_target& frame, time_point this_time)
 {
     duration frame_time = this_time - last_frame_time;
     last_frame_time = this_time;
@@ -331,7 +331,7 @@ uint64_t handle_input(render_target const& frame, time_point this_time)
     return us_since_last;
 }
 
-void user_frame(render_target const& frame)
+void user_frame(render_target& frame)
 {
     time_point this_time = clk::now();
 
@@ -361,19 +361,20 @@ void user_frame(render_target const& frame)
 
     uint64_t us_since_last = handle_input(frame, this_time);
 
-#if 0
-    time_point huge_st = clk::now();
-    texture_elements(frame,
-        mesh.vertices.data(), mesh.vertices.size(),
-        mesh.elements.data(), mesh.elements.size());
-    time_point huge_en = clk::now();
-    size_t element_count = mesh.elements.size() / 3;
-    size_t ns_elap = std::chrono::duration_cast<std::chrono::nanoseconds>(
-            huge_en - huge_st).count();
-    std::cerr << std::setprecision(3) <<
-        (element_count * 1.0e+3f / ns_elap) <<
-        " million elements per second\n";
-#else
+    if (!mesh.vertices.empty()) {
+        // time_point huge_st = clk::now();
+        texture_elements(frame,
+            mesh.vertices.data(), mesh.vertices.size(),
+            mesh.elements.data(), mesh.elements.size());
+        // time_point huge_en = clk::now();
+        // size_t element_count = mesh.elements.size() / 3;
+        // size_t ns_elap = std::chrono::duration_cast<
+        //     std::chrono::nanoseconds>(
+        //         huge_en - huge_st).count();
+        // std::cerr << std::setprecision(3) <<
+        //     (element_count * 1.0e+3f / ns_elap) <<
+        //     " million elements per second\n";
+    }
 
     size_t constexpr triangle_cnt = 400;
     static float ang[triangle_cnt];
@@ -549,7 +550,6 @@ void user_frame(render_target const& frame)
     //     "ǳǴǵǶǷǸǹǺǻǼǽǾǿ");
     // draw_text(frame, 10, 10+24*3,
     //     u8"Hello, 你好, こんにちは, שָׁלוֹם, नमस्ते, Γειά σας, Здравствуйте");
-#endif
 
     render_time += clk::now() - this_time;
 }
