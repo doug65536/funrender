@@ -15,9 +15,10 @@ struct render_ctx;
 
 struct fill_job;
 
-void ensure_scratch(size_t height);
-extern std::vector<std::vector<fill_job>> fill_job_batches;
+std::vector<fill_job> &fill_job_batch(
+    render_ctx * __restrict ctx, size_t slot);
 
+void ensure_scratch(render_ctx * __restrict ctx, size_t height);
 
 #include "task_worker.h"
 #include "text.h"
@@ -26,9 +27,10 @@ extern uint64_t last_fps, smooth_fps;
 
 struct scaninfo {
     glm::vec4 p;
-    glm::vec2 t;
+    glm::vec3 t;
     glm::vec3 n;
     glm::vec3 c;
+    glm::vec3 u;
 
     scaninfo() = default;
 
@@ -37,18 +39,17 @@ struct scaninfo {
 
     scaninfo(glm::vec4 const& p)
         : p{p}
-        , t{}
-        , n{}
-        , c{}
     {
     }
 
     scaninfo(glm::vec2 const& t, glm::vec4 const& p,
-            glm::vec3 const& n, glm::vec3 const& c)
+            glm::vec3 const& n, glm::vec3 const& c,
+            glm::vec3 const& u = {})
         : p{p}
-        , t{t}
+        , t{t, 0.0f}
         , n{n}
         , c{c}
+        , u{u}
     {
     }
 
@@ -58,7 +59,8 @@ struct scaninfo {
             t - rhs.t,
             p - rhs.p,
             n - rhs.n,
-            c - rhs.c
+            c - rhs.c,
+            u - rhs.u
         };
     }
 
@@ -68,7 +70,8 @@ struct scaninfo {
             t + rhs.t,
             p + rhs.p,
             n + rhs.n,
-            c + rhs.c
+            c + rhs.c,
+            u + rhs.u
         };
     }
 
@@ -78,7 +81,8 @@ struct scaninfo {
             t * rhs,
             p * rhs,
             n * rhs,
-            c * rhs
+            c * rhs,
+            u * rhs
         };
     }
 
@@ -185,6 +189,12 @@ struct std::hash<scaninfo> {
     }
 };
 
+struct edgeinfo {
+    unsigned edge_idx;
+    unsigned diff_idx;
+    float n;
+};
+
 struct render_target {
     int width{};
     int height{};
@@ -210,7 +220,7 @@ struct render_target {
     {
     }
 
-    render_target(render_target const&) = default;
+    render_target(render_target const&) = delete;
     render_target(render_target&&) = default;
 
     render_target subset(int left_, int top_, int width_, int height_) const
@@ -233,76 +243,53 @@ struct render_target {
         return proposed;
     }
 
-    void reset_clip_scratch(size_t reserve)
-    {
-        vout_scratch.clear();
-        vinp_scratch.clear();
-        vinp_scratch.reserve(reserve);
-        vout_scratch.reserve(reserve);
-    }
-
-    std::vector<scaninfo> vinp_scratch;
-    std::vector<scaninfo> vout_scratch;
-
-    std::vector<scaninfo> edges;
-    std::unordered_map<scaninfo, unsigned> edges_lookup;
-
     barrier present_barrier;
 
     uint32_t *back_buffer{};
 
     SDL_Surface * back_surface{};
     bool back_surface_locked{};
-};
 
-extern std::vector<glm::mat4> view_mtx_stk;
-extern std::vector<glm::mat4> proj_mtx_stk;
+    std::vector<scaninfo> edges;
+    std::unordered_map<scaninfo, unsigned> edges_lookup;
+};
 
 size_t hash_bytes(void const *data, size_t size);
 
-struct edgeinfo {
-    unsigned edge_idx;
-    unsigned diff_idx;
-    float n;
-};
+void texture_raw_triangle(render_target& __restrict fp,
+    render_ctx * __restrict ctx,
+    scaninfo v0, scaninfo v1, scaninfo v2);
 
-struct scanconv_ent {
-    uint32_t used = 0;
-    edgeinfo range[2];
-};
-
-extern std::vector<scanconv_ent> scanconv_scratch;
-
-void fill_triangle(render_target& fp,
-    scaninfo const& v0, scaninfo const& v1,
-    scaninfo v2, unsigned color);
-
-void texture_triangle(render_target& fp,
-    scaninfo v0, scaninfo v1,
-    scaninfo v2);
-
-void fill_box(render_target& fp,
-    int sx, int sy,
-    int ex, int ey, float z,
+void fill_box(render_target& __restrict fp,
+    render_ctx * __restrict ctx,
+    int sx, int sy, int ex, int ey, float z,
     uint32_t color, int border_radius = 0);
 
-void set_texture(render_ctx *ctx,
-    uint32_t const *incoming_pixels,
+void set_texture(render_ctx * __restrict ctx,
+    uint32_t const * __restrict incoming_pixels,
     int incoming_w, int incoming_h, int incoming_pitch,
     int incoming_levels, void (*free_fn)(void*));
 
 void flip_colors(uint32_t *pixels, int imgw, int imgh);
-void bind_texture(size_t binding);
-bool delete_texture(size_t binding);
-void parallel_clear(render_target &frame, uint32_t color);
-void draw_text(render_target &frame, int x, int y, float z,
-               char const *text_st, char const *text_en = nullptr,
-               int wrap_col = -1, uint32_t color = 0xFFFFFFFF);
+void bind_texture(render_ctx * __restrict ctx,
+    size_t binding);
+bool delete_texture(render_ctx * __restrict ctx,
+    size_t binding);
+void parallel_clear(render_target & __restrict frame,
+    render_ctx * __restrict ctx,
+    uint32_t color);
+void draw_text(render_target & __restrict frame,
+    render_ctx * __restrict ctx,
+    int x, int y, float z,
+    char const *text_st, char const *text_en = nullptr,
+    int wrap_col = -1, uint32_t color = 0xFFFFFFFF);
 
-void print_matrix(char const *title, std::ostream &out, glm::mat4 const& pm);
+void print_matrix(char const *title,
+    std::ostream &out, glm::mat4 const& pm);
 
 template <typename T, glm::length_t L, glm::qualifier Q>
-std::ostream &print_vector(std::ostream &out, glm::vec<L, T, Q> const &v)
+std::ostream &print_vector(std::ostream &out,
+    glm::vec<L, T, Q> const &v)
 {
     out.put('[');
     for (glm::length_t i = 0; i < L; ++i) {
@@ -313,25 +300,30 @@ std::ostream &print_vector(std::ostream &out, glm::vec<L, T, Q> const &v)
     return out.put(']');
 }
 
-void texture_polygon(render_target& frame, render_ctx *ctx,
+void draw_polygon(render_target& __restrict frame,
+    render_ctx * __restrict ctx,
     scaninfo const *vinp, size_t count);
 
-void texture_polygon(render_target& frame, render_ctx *ctx,
-    std::vector<scaninfo> vinp);
+void draw_polygon(render_target &__restrict frame,
+                     render_ctx *__restrict ctx,
+                     std::vector<scaninfo> const& vinp);
 
-template<size_t N>
-void texture_polygon(render_target& frame, render_ctx *ctx,
-    std::array<scaninfo, N> const& vinp)
+template <size_t N>
+void draw_polygon(render_target &__restrict frame,
+                     render_ctx *__restrict ctx,
+                     std::array<scaninfo, N> const &vinp)
 {
-    texture_polygon(frame, ctx, vinp.data(), N);
+    draw_polygon(frame, ctx, vinp.data(), N);
 }
 
-void texture_elements(render_target &fp, render_ctx *ctx,
-    scaninfo const *vertices, size_t vertex_count,
-    uint32_t const *elements, size_t element_count);
+void draw_elements(render_target & __restrict fp,
+    render_ctx * __restrict ctx,
+    scaninfo const * __restrict vertices, size_t vertex_count,
+    uint32_t const * __restrict elements, size_t element_count);
 
-void set_transform(glm::mat4 const& pm,
-    glm::mat4 const& vm);
+void set_transform(render_ctx * __restrict ctx,
+    glm::mat4 const * __restrict vm = nullptr,
+    glm::mat4 const * __restrict pm = nullptr);
 
 extern bool mouselook_pressed[]; // WASDRF
 extern float mouselook_yaw;
@@ -344,6 +336,7 @@ extern glm::vec3 mouselook_acc;
 extern glm::vec3 mouselook_px;
 extern glm::vec3 mouselook_py;
 extern glm::vec3 mouselook_pz;
+extern bool text_test;
 
 extern std::vector<std::string> command_line_files;
 
@@ -354,68 +347,49 @@ extern std::vector<std::string> command_line_files;
 
 struct fill_job {
     // barrier
-    fill_job(render_target &fp, barrier *frame_barrier)
-        : fp(fp)
-        , frame_barrier(frame_barrier)
-    {}
+    fill_job(render_target & __restrict fp,
+            render_ctx * __restrict ctx,
+            barrier *frame_barrier);
 
     // clean
-    fill_job(render_target &fp, int cleared_row, uint32_t color)
-        : fp(fp)
-        , clear_row(cleared_row)
-        , clear_color(color)
-    {}
+    fill_job(render_target & __restrict fp,
+            render_ctx * __restrict ctx,
+            int cleared_row, uint32_t color);
 
     // span
-    fill_job(render_target &fp, int y,
-        edgeinfo const& lhs, edgeinfo const& rhs, unsigned back_phase)
-        : fp(fp)
-        , edge_refs(lhs, rhs)
-        , back_phase(back_phase)
-    {
-        box[1] = std::max(int16_t(0),
-            std::min((int16_t)y, (int16_t)INT16_MAX));
-    }
+    fill_job(render_target & __restrict fp,
+            render_ctx * __restrict ctx,
+            int y, edgeinfo const& lhs,
+            edgeinfo const& rhs);
 
     // box
-    fill_job(render_target& fp, int y,
-            int sx, int sy, int ex, int ey, float z, uint32_t color,
-            std::vector<float> const *border_table)
-        : fp(fp)
-        , clear_color(color)
-        , border_table(border_table)
-        , z(z)
-        , box_y(y)
-        , box{(int16_t)sx, (int16_t)sy, (int16_t)ex, (int16_t)ey}
-    {}
+    fill_job(render_target& __restrict fp,
+            render_ctx * __restrict ctx,
+            int y, int sx, int sy, int ex, int ey,
+            float z, uint32_t color,
+            std::vector<float> const *border_table);
 
     // glyph (text)
-    fill_job(render_target& fp, int y, int sx, int sy, float z,
-            size_t glyph_index, uint32_t color)
-        : fp(fp)
-        , clear_color(color)
-        , z(z)
-        , glyph_index(glyph_index)
-        , box_y(y)
-        , box{}
-    {
-        glyph_info const& info = glyphs.info[glyph_index];
-        box[0] = (int16_t)sx;
-        box[1] = (int16_t)sy;
-        box[2] = (int16_t)(sx + (info.ex - info.sx));
-        box[3] = (int16_t)(sy + (info.ey - info.sy));
-    }
+    fill_job(render_target& __restrict fp,
+            render_ctx * __restrict ctx,
+            int y, int sx, int sy, float z,
+            size_t glyph_index, uint32_t color);
 
-    render_target& fp;
+    void (*handler)(size_t worker_nr, fill_job &job){};
+
+    render_target& __restrict fp;
+    render_ctx * __restrict ctx;
+
+    // 24 bytes
     std::pair<edgeinfo, edgeinfo> edge_refs;
-    unsigned back_phase;
-    int clear_row = -1;
-    uint32_t clear_color;
-    barrier *frame_barrier = nullptr;
+
+    //unsigned back_phase;
+    int row;
+    uint32_t color;
+    barrier *frame_barrier;
     std::vector<float> const *border_table;
     float z;
-    uint16_t glyph_index = -1;
-    int16_t box_y = -1;
+    uint16_t glyph_index;
     int16_t box[4];
 };
 
@@ -445,17 +419,60 @@ extern std::vector<fill_task_worker> task_workers;
 #define rgb_r(pixel)        (((pixel) >> rgba_shift_r) & 0xff)
 #define rgb_a(pixel)        (((pixel) >> rgba_shift_a) & 0xff)
 
-int select_mipmap(glm::vec2 const& diff_of_t, float invWidth);
+int select_mipmap(render_ctx * __restrict ctx,
+    glm::vec2 const& diff_of_t, float invWidth);
 uint32_t indexof_mipmap(int level);
 
-void set_light_enable(render_ctx *ctx,
+void set_light_enable(render_ctx * __restrict ctx,
     size_t light_nr, bool enable);
-void set_light_pos(render_ctx *ctx,
+void set_light_pos(render_ctx * __restrict ctx,
     size_t light_nr, glm::vec4 const &pos);
-void set_light_spot(render_ctx *ctx,
+void set_light_spot(render_ctx * __restrict ctx,
     size_t light_nr,
     glm::vec3 const& dir, float cutoff, float exponent);
-void set_light_diffuse(render_ctx *ctx,
+void set_light_diffuse(render_ctx * __restrict ctx,
     size_t light_nr, glm::vec3 color);
-void set_light_specular(render_ctx *ctx,
+void set_light_specular(render_ctx * __restrict ctx,
     size_t light_nr, glm::vec3 color, float shininess);
+
+void commit_batches(render_ctx * __restrict ctx,
+    bool allow_notify = false);
+
+void set_proj_matrix(render_ctx * __restrict ctx,
+    glm::mat4 const& mtx);
+void set_view_matrix(render_ctx * __restrict ctx,
+    glm::mat4 const& mtx);
+
+glm::mat4 &push_proj_matrix(render_ctx * __restrict ctx);
+glm::mat4 &push_view_matrix(render_ctx * __restrict ctx);
+
+void pop_proj_matrix(render_ctx * __restrict ctx);
+void pop_view_matrix(render_ctx * __restrict ctx);
+
+glm::mat4 &get_proj_matrix(render_ctx * __restrict ctx);
+glm::mat4 &get_view_matrix(render_ctx * __restrict ctx);
+
+render_ctx *new_ctx();
+
+render_target create_render_target(int width, int height,
+    bool has_color, bool has_z);
+render_target create_cubemap_target(int width, int height);
+
+struct draw_stats {
+    // Number of polygons partially outside any clip plane
+    size_t clipped;
+
+    // Number of polygons entirely inside all clip planes
+    size_t unclipped;
+
+    // Number of polygons entirely outside any clip plane
+    size_t culled;
+};
+
+draw_stats const* get_draw_stats(render_ctx * __restrict ctx);
+
+void set_color_mask(render_ctx * __restrict ctx, bool color_mask);
+void set_depth_mask(render_ctx * __restrict ctx, bool depth_mask);
+void set_depth_test(render_ctx * __restrict ctx, bool depth_test);
+void push_masks(render_ctx * __restrict ctx);
+void pop_masks(render_ctx * __restrict ctx);

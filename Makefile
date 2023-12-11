@@ -41,10 +41,12 @@ else
 $(error Unknown architecture)
 endif
 
+#	-fvar-tracking -fvar-tracking-assignments
+
 ORIG_CXXFLAGS := $(CXXFLAGS)
-CXXFLAGS := -Wall -std=c++17 -g \
+CXXFLAGS := -Wall -std=c++17 -ggdb3 \
 	$(ORIG_CXXFLAGS) \
-	-Werror=return-type \
+	-Werror=return-type -Werror=reorder-ctor \
 	-Werror=format \
 	-pthread \
 	-ffast-math -fno-plt \
@@ -62,7 +64,7 @@ CXXFLAGS += -fsanitize=$(SANITIZE)
 endif
 
 ifeq ($(DEBUG),)
-CXXFLAGS += -Ofast -ftree-vectorize -flto
+CXXFLAGS += -Os -ftree-vectorize -flto
 else
 CXXFLAGS += -O0
 endif
@@ -83,7 +85,8 @@ endif
 CXXFLAGS += -MMD
 
 OBJS := pool.o funsdl.o funrender.o affinity.o \
-	stb_image_impl.o text.o objmodel.o 3ds.o cpu_usage.o
+	stb_image_impl.o text.o objmodel.o \
+	3ds.o cpu_usage.o huge_alloc.o
 
 all: funrender
 

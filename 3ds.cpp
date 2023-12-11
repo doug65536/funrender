@@ -25,9 +25,6 @@ bool threeds_loader::load(char const *pathname)
     return parse(block_id, block_sz, data_st + 6);
 }
 
-enum {
-
-};
 
 bool threeds_loader::parse(uint16_t block_id,
     uint32_t block_sz, uint8_t const *block)

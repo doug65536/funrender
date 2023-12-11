@@ -7,6 +7,11 @@
 
 class barrier {
 public:
+    barrier() = default;
+    barrier(barrier const&) = delete;
+    barrier(barrier&&) = default;
+    ~barrier() = default;
+
     void arrive_and_expect(int incoming_expect)
     {
         assert(incoming_expect > 0);

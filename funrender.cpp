@@ -1,8 +1,10 @@
 #include "funrender.h"
 #include "funsdl.h"
+#include <unistd.h>
 #include <iostream>
 #include <fstream>
 #include <cstdint>
+#include <cstdlib>
 #include <cassert>
 #include <fstream>
 #include <sstream>
@@ -15,6 +17,7 @@
 #include "objmodel.h"
 #include "cpu_usage.h"
 #include "abstract_vector.h"
+#include "likely.h"
 
 namespace {
 
@@ -49,14 +52,14 @@ size_t elap_graph_tail;
 
 #include "stb_image.h"
 
-void cleanup(render_ctx *ctx, int width, int height)
+void cleanup(render_ctx * __restrict ctx, int width, int height)
 {
 
 }
 
 obj_file_loader::loaded_mesh mesh;
 
-uint32_t *load_image(render_ctx *ctx,
+uint32_t *load_image(render_ctx * __restrict ctx,
     int *ret_width, int *ret_height,
     char const *pathname,
     std::string *fail_reason = nullptr)
@@ -81,7 +84,7 @@ uint32_t *load_image(render_ctx *ctx,
     }
 
     //flip_colors(pixels, imgw, imgh);
-    bind_texture(1);
+    bind_texture(ctx, 1);
 
     using size_pair = std::pair<int, int>;
 
@@ -155,7 +158,7 @@ uint32_t *load_image(render_ctx *ctx,
     return pixels;
 }
 
-int setup(render_ctx *ctx, int width, int height)
+int setup(render_ctx * __restrict ctx, int width, int height)
 {
     if (!command_line_files.empty()) {
         obj_file_loader obj;
@@ -178,12 +181,10 @@ int setup(render_ctx *ctx, int width, int height)
     float znear = 1.0f;
     float zfar = 1048576.0f;
 
-    glm::mat4 pm = proj_mtx_stk.emplace_back(
-        glm::frustum(-1.0f, 1.0f, -1.0f, 1.0f, znear, zfar));
+    get_proj_matrix(ctx) = glm::frustum(
+        -1.0f, 1.0f, -1.0f, 1.0f, znear, zfar);
 
-    print_matrix("Proj", std::cerr, pm);
-
-    glm::mat4 vm = view_mtx_stk.emplace_back(1.0f);
+    get_view_matrix(ctx) = glm::mat4(1.0f);
 
     srand(44444);
     return EXIT_SUCCESS;
@@ -237,14 +238,17 @@ static unsigned int cubeIndices[] = {
 
 
 
-void new_render_frame(render_target& frame)
+void new_render_frame(render_target& __restrict frame,
+    render_ctx * __restrict ctx)
 {
-    parallel_clear(frame, 0xFF561234);
+    parallel_clear(frame, ctx, 0xFF561234);
 
 
 }
 
-uint64_t handle_input(render_target& frame, time_point this_time)
+uint64_t handle_input(render_target& __restrict frame,
+    render_ctx * __restrict ctx,
+    time_point this_time)
 {
     duration frame_time = this_time - last_frame_time;
     last_frame_time = this_time;
@@ -301,70 +305,73 @@ uint64_t handle_input(render_target& frame, time_point this_time)
         mouselook_py * mouselook_acc.y +
         mouselook_pz * mouselook_acc.z;
 
-    mouselook_vel += sum;//= mouselook_acc;
+    mouselook_vel += sum * sec_since;//= mouselook_acc;
     mouselook_pos += mouselook_vel * sec_since;
 
-    format_text(frame, -16,
-        frame.height - (64+6*24), -1.0f,
+    format_text(frame, ctx, -8,
+        frame.height - (8+6*24), -1.0f,
         0xFFFFFFFF, "pos=%.3f %.3f %.3f",
         mouselook_pos.x, mouselook_pos.y, mouselook_pos.z);
 
-    format_text(frame, -16,
-        frame.height - (64+4*24), -1.0f,
+    format_text(frame, ctx, -8,
+        frame.height - (8+4*24), -1.0f,
         0xFFFFFFFF, "pitch=%f, yaw=%f ",
-        mouselook_pitch, mouselook_yaw);
+        mouselook_pitch * 180.0f / M_PIf,
+        mouselook_yaw * 180.0f / M_PIf);
 
-    format_text(frame, -16,
-        frame.height - (64+3*24), -1.0f,
+    format_text(frame, ctx, -8,
+        frame.height - (8+3*24), -1.0f,
         0xFFFFFFFF, "x.x=%f, x.y=%f, x.z=%f ",
         mouselook_px.x, mouselook_px.y, mouselook_px.z);
 
-    format_text(frame, -16,
-        frame.height - (64+2*24), -1.0f,
+    format_text(frame, ctx, -8,
+        frame.height - (8+2*24), -1.0f,
         0xFFFFFFFF, "y.x=%f, y.y=%f, y.z=%f ",
         mouselook_py.x, mouselook_py.y, mouselook_py.z);
 
-    format_text(frame, -16,
-        frame.height - (64+1*24), -1.0f,
+    format_text(frame, ctx, -8,
+        frame.height - (8+1*24), -1.0f,
         0xFFFFFFFF, "z.x=%f, z.y=%f, z.z=%f ",
         mouselook_pz.x, mouselook_pz.y, mouselook_pz.z);
 
     return us_since_last;
 }
 
-void user_frame(render_target& frame, render_ctx *ctx)
+void user_frame(render_target& __restrict frame,
+    render_ctx * __restrict ctx)
 {
     time_point this_time = clk::now();
 
     ++frame_nr;
 
-    parallel_clear(frame, 0xFF101010);// 0xFF561234);
+    parallel_clear(frame, ctx, 0xFF101010);// 0xFF561234);
 
-    view_mtx_stk.back() = glm::mat4(1.0f);
+    glm::mat4 view;
 
-    view_mtx_stk.back() = glm::rotate(view_mtx_stk.back(),
-        -mouselook_pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+    view = glm::mat4(1.0f);
+    view = glm::rotate(view, -mouselook_pitch,
+        glm::vec3(1.0f, 0.0f, 0.0f));
+    view = glm::rotate(view, -mouselook_yaw,
+        glm::vec3(0.0f, 1.0f, 0.0f));
 
-    view_mtx_stk.back() = glm::rotate(view_mtx_stk.back(),
-        -mouselook_yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+    view = glm::translate(view, -mouselook_pos);
 
-    view_mtx_stk.back() = glm::translate(view_mtx_stk.back(),
-        -mouselook_pos);
+    set_transform(ctx, &view, nullptr);
 
-    set_transform(proj_mtx_stk.back(), view_mtx_stk.back());
-
-    set_light_enable(ctx, 0, true);
     set_light_pos(ctx, 0, glm::vec4(mouselook_pos, 1.0f));
     set_light_diffuse(ctx, 0, {0.1f, 0.1f, 0.1f});
     set_light_specular(ctx, 0, {0.8f, 0.8f, 0.8f}, 1.0f);
+    set_light_enable(ctx, 0, true);
 
-    format_text(frame, -20, 80, -1.0f, 0xff562233, "Test");
+    format_text(frame, ctx,
+        -20, 80, -1.0f, 0xff562233, "Test");
 
-    uint64_t us_since_last = handle_input(frame, this_time);
+    uint64_t us_since_last = handle_input(
+        frame, ctx, this_time);
 
     if (!mesh.vertices.empty()) {
         // time_point huge_st = clk::now();
-        texture_elements(frame, ctx,
+        draw_elements(frame, ctx,
             mesh.vertices.data(), mesh.vertices.size(),
             mesh.elements.data(), mesh.elements.size());
         // time_point huge_en = clk::now();
@@ -399,14 +406,14 @@ void user_frame(render_target& frame, render_ctx *ctx)
                 zofs[i] = triangle_cnt - i - 1;
                 rad[i] = 0.5f;
             } else {
-                xofs[i] = ((double)rand() / (RAND_MAX+1LL) - 0.5) *
-                    frame.width * 0.95;
-                yofs[i] = ((double)rand() / (RAND_MAX+1LL) - 0.5) *
-                    frame.height * 0.95;
-                //zofs[i] = (double)rand() / RAND_MAX * 19.0 + 1.0;
+                xofs[i] = ((float)rand() / (RAND_MAX+1LL) - 0.5f) *
+                    frame.width * 0.95f;
+                yofs[i] = ((float)rand() / (RAND_MAX+1LL) - 0.5f) *
+                    frame.height * 0.95f;
+                //zofs[i] = (float)rand() / RAND_MAX * 19.0f + 1.0f;
                 zofs[i] = i * 8.0f;
-                rad[i] = pow(2.0, (double)rand() / (RAND_MAX+1LL) *
-                    5.9 + 4.0);
+                rad[i] = std::powf(2.0f,
+                    (float)rand() / (RAND_MAX+1LL) * 5.9f + 4.0f);
             }
 
             //col[i] = (float)rand() / RAND_MAX * 0x1000000;
@@ -458,13 +465,20 @@ void user_frame(render_target& frame, render_ctx *ctx)
         std::cerr << (us / frame_cnt) << "µs/frame ±" << diff << " µs"
             " (" << fps << " fps) avg (" << render_us << " render µs)\n";
 
+        draw_stats const *stats = get_draw_stats(ctx);
+
+        std::cerr << "clipped=" << stats->clipped <<
+            ", unclipped=" << stats->unclipped <<
+            ", culled=" << stats->culled <<
+            "\n";
+
         print_vector(std::cerr, mouselook_pos) << ' ' <<
             mouselook_pitch << ' ' << mouselook_yaw << '\n';
     }
 
     static size_t const cpu_count = std::thread::hardware_concurrency();
 
-    format_text(frame, -16,
+    format_text(frame, ctx, -16,
         frame.height - (64+5*24), -1.0f,
         0xFFFFFFFF, "user %u%% (%zu%%), kernel %u%% (%zu%%), total %u%% (%zu%%)",
         user_percent, user_percent / cpu_count,
@@ -519,38 +533,81 @@ void user_frame(render_target& frame, render_ctx *ctx)
             glm::normalize(glm::vec3(v[1] - v[0])),
             glm::normalize(glm::vec3(v[2] - v[0])));
 
-        texture_polygon(frame, ctx, std::array<scaninfo, 3>{
+        draw_polygon(frame, ctx, std::array<scaninfo, 3>{
             scaninfo{t1, v[0], n1, c1},
             scaninfo{t2, v[1], n2, c2},
             scaninfo{t3, v[2], n3, c3}
         });
     }
 
-    fill_box(frame, 8, 8, frame.width - 8, 168, -0.99f, 0x80563412, 12);
+    fill_box(frame, ctx,
+        8, 8, frame.width - 8, 168, -0.99f, 0x80563412, 12);
 
-    draw_text(frame, 30, 30+24*0, -1.0f,
-        u8"The quick brown fox jumped over the lazy dog 1234567890-=`<>?;'{}\\");
-    draw_text(frame, 30, 30+24*1, -1.0f,
-        u8"THE QUICK BROWN FOX JUMPED OVER THE LAZY DOG !@#$%^&*()_+~,./:\"[]|");
+    if (text_test) {
+        draw_text(frame, ctx,
+            30, 30+24*0, -1.0f,
+            u8"The quick brown fox jumped over the lazy dog 1234567890-=`<>?;'{}\\");
+        draw_text(frame, ctx,
+            30, 30+24*1, -1.0f,
+            u8"THE QUICK BROWN FOX JUMPED OVER THE LAZY DOG !@#$%^&*()_+~,./:\"[]|");
+    }
+    format_text(frame, ctx, 30, 30+24*2, -1.0f, 0xffffffff,
+        "%4" PRIu64 "", smooth_fps / 100);
 
-    std::string fps;
-    fps = std::to_string(smooth_fps);
-    if (fps.length() < 4)
-        fps = std::string(4 - fps.length(), ' ') + fps;
-    draw_text(frame, 30, 30+24*2, -1.0f, fps.c_str());
-
-    fps = std::to_string(last_fps);
-    if (fps.length() < 4)
-        fps = std::string(4 - fps.length(), ' ') + fps;
-    draw_text(frame, 30, 30+24*3, -1.0f, fps.c_str());
-    // draw_text(frame, 10, 10+24*2,
-    //     u8"ĀāĂăĄąĆćĈĉĊċČčĎďĐđĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĦħĨĩĪīĬĭĮįİıĲĳĴĵĶķĸĹĺĻļ"
-    //     "ĽľĿŀŁłŃńŅņŇňŉŊŋŌōŎŏŐőŒœŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŦŧŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻ"
-    //     "żŽžſƀƁƂƃƄƅƆƇƈƉƊƋƌƍƎƏƐƑƒƓƔƕƖƗƘƙƚƛƜƝƞƟƠơƢƣƤƥƦƧƨƩƪƫƬƭƮƯưƱƲƳƴƵƶƷƸƹƺ"
-    //     "ƻƼƽƾƿǀǁǂǃǄǅǆǇǈǉǊǋǌǍǎǏǐǑǒǓǔǕǖǗǘǙǚǛǜǝǞǟǠǡǢǣǤǥǦǧǨǩǪǫǬǭǮǯǰǱǲ"
-    //     "ǳǴǵǶǷǸǹǺǻǼǽǾǿ");
+    format_text(frame, ctx, 30, 30+24*3, -1.0f, 0xffffffff,
+        "%4" PRIu64 "", last_fps);
     // draw_text(frame, 10, 10+24*3,
     //     u8"Hello, 你好, こんにちは, שָׁלוֹם, नमस्ते, Γειά σας, Здравствуйте");
+
+    if (text_test) {
+        draw_text(frame, ctx, 30, 30+24*4, -1.0f,
+            (char const *)u8"a\u0300e\u0301i\u0302o\u0303u\u0308");
+
+        // draw_text(frame, ctx, 30, 30+24*5, -1.0f,
+        //     "ĀāĂăĄąĆćĈĉĊċČčĎďĐđĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĦħĨĩĪīĬĭĮįİıĲĳĴĵĶķĸĹĺĻļ"
+        //     "ĽľĿŀŁłŃńŅņŇňŉŊŋŌōŎŏŐőŒœŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŦŧŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻ"
+        //     "żŽžſƀƁƂƃƄƅƆƇƈƉƊƋƌƍƎƏƐƑƒƓƔƕƖƗƘƙƚƛƜƝƞƟƠơƢƣƤƥƦƧƨƩƪƫƬƭƮƯưƱƲƳƴƵƶƷƸƹƺ"
+        //     "ƻƼƽƾƿǀǁǂǃǄǅǆǇǈǉǊǋǌǍǎǏǐǑǒǓǔǕǖǗǘǙǚǛǜǝǞǟǠǡǢǣǤǥǦǧǨǩǪǫǬǭǮǯǰǱ"
+        //     "ǲǳǴǵǶǷǸǹǺǻǼǽǾǿ", nullptr, 64);
+
+        char const *hello_messages[] = {
+            u8"English: Hello, World!",
+            u8"Spanish: ¡Hola, Mundo!",
+            u8"French: Bonjour, Monde!",
+            u8"German: Hallo, Welt!",
+            u8"Italian: Ciao, Mondo!",
+            u8"Portuguese: Olá, Mundo!",
+            u8"Dutch: Hallo, Wereld!",
+            u8"Swedish: Hej, Världen!",
+            u8"Finnish: Hei, Maailma!",
+            u8"Danish: Hej, Verden!",
+            u8"Polish: Cześć, Świecie!",
+            u8"Czech: Ahoj, světe!",
+            u8"Russian: Привет, Мир!",
+            u8"Greek: Γειά σου Κόσμε!",
+            u8"Turkish: Merhaba, Dünya!",
+            u8"Arabic: مرحبا، العالم!",
+            u8"Hebrew: שלום, עולם!",
+            u8"Japanese: こんにちは、世界！",
+            u8"Korean: 안녕하세요, 세계!",
+            u8"Chinese (Simplified): 你好，世界！",
+            u8"Chinese (Traditional): 你好，世界！"
+        };
+
+        size_t msgx = 120;
+        size_t y = 30+24*2;
+        size_t message_count = 0;
+        for (char const *message : hello_messages) {
+            draw_text(frame, ctx, msgx, y, -1.0f, message);
+            y += 24;
+            if (++message_count == 10) {
+                y -= 24 * message_count;
+                msgx += 400;
+                message_count = 0;
+            }
+        }
+    }
+
 
     render_time += clk::now() - this_time;
 }
@@ -558,7 +615,7 @@ void user_frame(render_target& frame, render_ctx *ctx)
 // 012, 213, 234
 // even: n+1, n, n+2
 //  odd: n, n+1, n+2
-// void texture_strip(render_target &fp, glm::vec3 *verts,
+// void texture_strip(render_target & __restrict fp, glm::vec3 *verts,
 //     size_t count, size_t stride = 2)
 // {
 //     for (size_t i = 0; i + 2 <= count; i += 2) {
@@ -566,14 +623,14 @@ void user_frame(render_target& frame, render_ctx *ctx)
 //     }
 // }
 
-// void texture_fan(render_target &fp, glm::vec3 *verts,
+// void texture_fan(render_target & __restrict fp, glm::vec3 *verts,
 //     size_t count, size_t stride = 2)
 // {
 //     for (size_t i = 1; i < count; i += stride)
-//         texture_triangle(fp, verts[0], verts[i], verts[i + 1]);
+//         texture_raw_triangle(fp, verts[0], verts[i], verts[i + 1]);
 // }
 
-// void texture_tris(render_target &fp, glm::vec3 *verts,
+// void texture_tris(render_target & __restrict fp, glm::vec3 *verts,
 //     size_t count, size_t stride = 3)
 // {
 //     for (size_t i = 0; i < count; i += stride) {
@@ -588,7 +645,7 @@ void user_frame(render_target& frame, render_ctx *ctx)
 //             v.y *= m;
 //             v.z *= m;
 //         }
-//         texture_triangle(fp, glm::vec3(v4[0]),
+//         texture_raw_triangle(fp, glm::vec3(v4[0]),
 //             glm::vec3(v4[1]), glm::vec3(v4[2]));
 //     }
 // }

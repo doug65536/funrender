@@ -24,7 +24,11 @@ glm::vec3 specular(glm::vec3 ks, glm::vec3 ilight,
     // Get cosine of angle between that perfect
     // reflection and the vector to the camera
     float dotProduct = glm::max(glm::dot(v, r), 0.0f);
-    float shiny = glm::pow(dotProduct, shininess);
+    float shiny = shininess == 1.0f
+        ? dotProduct
+        : shininess == 2.0f
+        ? dotProduct * dotProduct
+        : glm::pow(dotProduct, shininess);
     glm::vec3 specular = ks * ilight * shiny;
     return specular;
 }

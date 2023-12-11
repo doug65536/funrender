@@ -41,6 +41,7 @@ public:
             item_memory = reinterpret_cast<void*>(free_list);
             free_slot *next_free = free_list->next;
             free_list->~free_slot();
+            free_list = next_free;
         } else {
             // Create a bucket if needed
             if (buckets.empty() ||
@@ -53,8 +54,7 @@ public:
             // Take item
             size_t index = buckets.back().bump_alloc++;
 
-            item_memory = buckets.back().storage[index].data;
-
+            item_memory = &buckets.back().storage[index];
         }
         T *item = new (item_memory) T(std::forward<Args>(args)...);
 
@@ -93,7 +93,8 @@ public:
         if (capacity_ >= capacity)
             return;
 
-        size_t rounded_capacity = (capacity + (bucket_sz::value - 1)) /
+        size_t rounded_capacity = (capacity +
+            (bucket_sz::value - 1)) /
             bucket_sz::value;
         while (capacity_ < rounded_capacity) {
             buckets.emplace_back();

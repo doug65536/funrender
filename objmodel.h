@@ -3,10 +3,13 @@
 #include <fstream>
 #include <string>
 #include <cassert>
+#include <array>
 #include <unordered_map>
 #include <sstream>
+#include <random>
 #include <glm/glm.hpp>
 #include "funsdl.h"
+#include "likely.h"
 
 class obj_file_loader {
 public:
@@ -45,8 +48,8 @@ public:
                 continue;
 
             // Reset the stringstring to read from the newly read line
-            ss.str(line);
             ss.clear();
+            ss.str(line);
 
             // Each line begins with a short string that says the line type
             ss >> word >> std::ws;
@@ -138,7 +141,7 @@ public:
                     return false;
             } else if (word == "newmtl") {
                 std::getline(ss, name);
-                create_material(name);
+                current_material = create_material(name);
             } else if (word == "usemtl") {
                 std::getline(ss, name);
                 auto it = mat_lookup.find(name);
@@ -214,6 +217,9 @@ public:
         // Emissive color
         glm::vec3 Ke;
 
+        // Index of refraction
+        float Ni;
+
         // Specular exponent
         float Ns{1.0f};
 
@@ -255,7 +261,8 @@ public:
             static const std::unordered_map<
                 std::string, float (material_info::*)> float_members{
                     { "d", &material_info::d },
-                    { "Ns", &material_info::Ns }
+                    { "Ns", &material_info::Ns },
+                    { "Ni", &material_info::Ni }
                 };
 
             static const std::unordered_map<
@@ -535,4 +542,238 @@ private:
     std::vector<std::string> object_names;
     std::vector<uint32_t> object_starts;
     std::vector<std::pair<uint32_t, uint32_t> > sg_starts;
+};
+
+class bsp_tree {
+    struct tri {
+        tri() = default;
+
+        tri(scaninfo const& v0,
+                scaninfo const& v1, scaninfo const& v2)
+            : plane{plane_from_tri(v0, v1, v2)}
+            , v{v0, v1, v2}
+        {
+        }
+
+        tri(scaninfo const& v0, scaninfo const& v1,
+                scaninfo const& v2, glm::vec4 const& plane)
+            : plane{plane}
+            , v{v0, v1, v2}
+        {
+        }
+
+        // It can do it hypothetically if you give nullptr for the vectors
+        std::pair<size_t, size_t> clip_against(
+            tri const& partition,
+            std::vector<scaninfo> *front_out = nullptr,
+            std::vector<scaninfo> *back_out = nullptr)
+        {
+            std::pair<size_t, size_t> counts{ 0, 0 };
+
+            for (size_t n = 1, i = 0; i < v.size(); ++i, ++n) {
+                // Wrap around n when it gets out of range
+                n &= -(n < v.size());
+                scaninfo *curr = &v[i];
+                scaninfo *next = &v[n];
+                float cd = glm::dot(glm::vec3(curr->p),
+                    glm::vec3(plane)) + plane.w;
+                float nd = glm::dot(glm::vec3(next->p),
+                    glm::vec3(plane)) + plane.w;
+
+                bool curr_back = cd < 0.0f;
+                bool next_back = nd < 0.0f;
+
+                if (curr_back) {
+                    if (back_out)
+                        back_out->push_back(*curr);
+                    ++counts.second;
+                } else {
+                    if (front_out)
+                        front_out->push_back(*curr);
+                    ++counts.first;
+                }
+
+                if (next_back != curr_back) {
+                    // Project point onto plane
+                    scaninfo diff = *next - *curr;
+                    float full_dist = nd - cd;
+                    scaninfo intersection =
+                        diff * (cd / full_dist) + *curr;
+                    if (back_out)
+                        back_out->push_back(intersection);
+                    ++counts.second;
+                    if (front_out)
+                        front_out->push_back(intersection);
+                    ++counts.first;
+                }
+            }
+
+            return counts;
+        }
+
+        glm::vec4 plane;
+        std::array<scaninfo, 3> v;
+    };
+    struct node {
+        // xyz is center, w is squared radius
+        glm::vec4 sphere;
+        std::vector<tri> front;
+        std::vector<tri> back;
+        std::vector<tri> coplanar;
+    };
+public:
+    size_t select_random_tris(size_t *random_indices, size_t guesses)
+    {
+        if (guesses < tris.size()) {
+            for (size_t guess = 0; guess < guesses; ++guess) {
+                size_t *end = random_indices + guess;
+                random_indices[guess] = rand() *
+                        tris.size() / (RAND_MAX+1ULL);
+                if (unlikely(std::find(random_indices, end,
+                        random_indices[guess]) != end)) {
+                    // Retry that guess. That guess was a duplicate.
+                    --guess;
+                    continue;
+                }
+            }
+        } else {
+            guesses = tris.size();
+            for (size_t guess = 0; guess < guesses; ++guess)
+                random_indices[guess] = guess;
+            std::shuffle(random_indices,
+                random_indices + tris.size(), lcggen);
+        }
+
+        return guesses;
+    }
+
+    size_t select_partition()
+    {
+        // Randomly select `guesses` partition planes
+        // and choose the best among those. This is
+        // nearly as good as exhaustively checking
+        // every possibility and picking the apparent
+        // absolute best one.
+        constexpr size_t guesses = 4;
+        size_t random_indices[guesses];
+        size_t available = select_random_tris(
+            random_indices, guesses);
+
+        size_t best_selection;
+        float best_score;
+
+        for (size_t check = 0; check < available; ++check) {
+            size_t tri_index = random_indices[check];
+            tri &candidate_tri = tris[tri_index];
+            size_t front = 0;
+            size_t back = 0;
+            size_t split = 0;
+            size_t crossed = 0;
+            for (size_t i = 0; i < tris.size(); ++i) {
+                // Don't check it against itself
+                if (i == tri_index)
+                    continue;
+                std::pair<size_t, size_t> sides =
+                    tris[i].clip_against(candidate_tri);
+                if (sides.first && !sides.second)
+                    ++front;
+                else if (!sides.first && sides.second)
+                    ++back;
+                else
+                    ++split;
+
+                // Prefer to select partition planes that
+                // are going to potentially be split more
+                std::pair<size_t, size_t> crossed_sides =
+                    candidate_tri.clip_against(tris[i]);
+                crossed += crossed_sides.first && crossed_sides.second;
+            }
+
+            float imbalance = back - front;
+            // Squared
+            imbalance *= imbalance;
+
+            // Cube splits
+            float destructiveness = split;
+            destructiveness *= destructiveness;
+            destructiveness *= destructiveness;
+
+            float goodness = -imbalance +
+                -destructiveness +
+                crossed;
+
+            if (!check || goodness < best_score) {
+                best_selection = check;
+                best_score = goodness;
+            }
+        }
+
+        return best_selection;
+    }
+
+    void compile(std::vector<tri> &tris)
+    {
+        size_t selected = select_partition();
+        tri &selected_tri = tris[selected];
+
+        std::unique_ptr<node> n = std::make_unique<node>();
+
+        for (size_t i = 0; i < tris.size(); ++i) {
+            if (i == selected)
+                continue;
+
+            std::vector<scaninfo> front_verts;
+            std::vector<scaninfo> back_verts;
+
+            using side_pair = std::pair<
+                std::vector<scaninfo> *,
+                std::vector<tri> node::*>;
+            side_pair sides[2] = {
+                { &front_verts, &node::front },
+                { &back_verts, &node::back }
+            };
+
+            tris[i].clip_against(selected_tri,
+                &front_verts, &back_verts);
+
+            for (size_t side = 0; side < 2; ++side) {
+                side_pair &side_info = sides[side];
+
+                // Make fan from front and back verts
+                for (size_t i = 1; i + 2 <= side_info.first->size(); ++i) {
+                    std::vector<tri> &dest = (*n).*(side_info.second);
+                    dest.emplace_back(front_verts[0],
+                        front_verts[i], front_verts[i+1],
+                        tris[i].plane);
+                }
+            }
+        }
+    }
+
+    void compile(obj_file_loader::loaded_mesh const& mesh)
+    {
+        for (size_t i = 0; i + 3 <= mesh.elements.size(); i += 3) {
+            tris.emplace_back(
+                mesh.vertices[mesh.elements[i]],
+                mesh.vertices[mesh.elements[i+1]],
+                mesh.vertices[mesh.elements[i+2]]);
+        }
+
+        compile(tris);
+    }
+
+    static glm::vec4 plane_from_tri(scaninfo const &v0,
+        scaninfo const &v1, scaninfo const &v2)
+    {
+        glm::vec3 v10 = glm::vec3(v1.p) - glm::vec3(v0.p);
+        glm::vec3 v20 = glm::vec3(v2.p) - glm::vec3(v0.p);
+        glm::vec3 normal = glm::normalize(glm::cross(v10, v20));
+        glm::vec4 plane{normal, -glm::dot(glm::vec3(v0.p), normal)};
+        return plane;
+    }
+
+private:
+    std::vector<tri> tris;
+    std::unique_ptr<node> root;
+    std::minstd_rand lcggen;
 };

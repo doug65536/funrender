@@ -5,6 +5,20 @@
 #include <unordered_map>
 #include "fastminmax.h"
 #include "funsdl.h"
+#include "likely.h"
+
+// Cubemap:
+// - Normalize the reflection vector
+// - Find largest magnitude component (x, y, or z)
+//   this tells you which face to select (of the 6).
+// - Divide the other two components by the largest
+//   and multiply them by 0.5.
+// - This gives normalized -0.5 to +0.5.
+// - Add 0.5, shifting the range to +0.0 to +1.0.
+// - Face order is usually +x -x +y -y +z -z.
+// - If absmax == abs(x): u = y/x, v = z/x, face = x > 0 ? 0 : 1
+// - If absmax == abs(y): u = x/y, v = z/y, face = y > 0 ? 2 : 3
+// - If absmax == abs(z): u = x/z, v = y/z, face = z > 0 ? 4 : 5
 
 font_data glyphs;
 
@@ -19,13 +33,20 @@ void text_init(int size, int first_cp, int last_cp)
         return;
 
     //char const *font_name = "RobotoMono-VariableFont_wght.ttf";
-    char const *font_name = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/tlwg/Purisa-BoldOblique.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/freefont/FreeMono.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf";
-    //char const *font_name = "/usr/share/fonts/truetype/tlwg/TlwgMono.ttf";
+
+    // No combining
+    //char const *font_name = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf";
+    // char const *font_name = "/usr/share/fonts/truetype/tlwg/Purisa-BoldOblique.ttf";
+
+    // crap combining
+    // char const *font_name = "/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf";
+
+    // perfect!
+    char const *font_name = "/usr/share/fonts/truetype/freefont/FreeMono.ttf";
+
+    // char const *font_name = "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf";
+    // char const *font_name = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf";
+    // char const *font_name = "/usr/share/fonts/truetype/tlwg/TlwgMono.ttf";
 
     // Key is what they look like, value is {sx, width}
     using appearance_map = std::unordered_map<
@@ -36,8 +57,10 @@ void text_init(int size, int first_cp, int last_cp)
 
     TTF_Font *font = TTF_OpenFont(font_name, size);
 
-    if (!font)
+    if (!font) {
+        std::cerr << font_name << " failed to open\n";
         return;
+    }
 
     using glyph_map = std::vector<std::pair<int, glyph_info>>;
     glyph_map char_lookup;
@@ -70,7 +93,8 @@ void text_init(int size, int first_cp, int last_cp)
         info.sy = miny;
         info.ey = maxy + 1;
         std::pair<appearance_map::iterator, bool> ins =
-            pos_by_appearance.emplace(stringify_glyph(glyph),
+            pos_by_appearance.emplace(
+                stringify_glyph(glyph),
                 std::make_pair(x, glyph->w));
 
         if (ins.second) {
@@ -78,7 +102,10 @@ void text_init(int size, int first_cp, int last_cp)
             deduped_codepoints.push_back(ch);
             dump_debug_glyph(std::cerr, ch, glyph);
         } else {
-            // This glyph looks identical to another glyph, don't need dup
+            // This glyph looks identical to another glyph
+            // Point it at the identical-looking one
+            info.dx = ins.first->second.first;
+            info.dw = ins.first->second.second;
             SDL_FreeSurface(glyph);
             glyph = nullptr;
         }
@@ -93,8 +120,6 @@ void text_init(int size, int first_cp, int last_cp)
 
     if (char_lookup.empty())
         return;
-
-    // Use the first surface as a reference
 
     // Main metadata
     data.w = total_width;
@@ -136,8 +161,6 @@ void text_init(int size, int first_cp, int last_cp)
         SDL_Surface *surface = info.surface;
         assert(surface != nullptr);
         int dx = info.dx;
-
-        //std::cerr << "Getting bits for codepoint " << item.first << '\n';
 
         uint8_t const *p = static_cast<uint8_t const *>(surface->pixels);
         for (int y = 0; y < surface->h && y < height; ++y) {
@@ -184,32 +207,33 @@ uint64_t glyph_bits(int index, int row)
     glyph_info &info = glyphs.info[index];
     int pitch = (glyphs.w + 7) >> 3;
     int x = info.dx;
-    int w = info.ex - info.sx;
+    int w = info.dw;
     uint64_t result{};
     for (int i = 0; i < w; ++i) {
         int b = x + i;
         bool bit = glyphs.bits[row * pitch + (b >> 3)] &
             (1U << (7 - (b & 7)));
-        result |= (bit << (w - i - 1));
+        result |= (uint64_t(bit) << (w - i - 1));
     }
     return result;
 }
 
-void glyph_worker(fill_job &job)
+void glyph_worker(size_t worker_nr, fill_job &job)
 {
     glyph_info const &info = glyphs.info[job.glyph_index];
-    uint64_t data = glyph_bits(job.glyph_index, job.box_y - job.box[1]);
+    uint64_t data = glyph_bits(job.glyph_index, job.row - job.box[1]);
     size_t pixel_index = job.fp.pitch *
-            (job.fp.top + job.box_y) +
+            (job.fp.top + job.row) +
             job.box[0] + job.fp.left;
     uint32_t *pixels = &job.fp.pixels[pixel_index];
     float *depths = &job.fp.z_buffer[pixel_index];
-    for (size_t bit = info.ex - info.sx, i = 0; data && bit > 0; ++i, --bit) {
-        bool set = data & (1U << (bit - info.sx - 1));
+    for (size_t bit = info.dw, i = 0;
+            data && bit > 0; ++i, --bit) {
+        bool set = data & (uint64_t(1) << (bit - 1));
         uint32_t &pixel = pixels[i];
         float &depth = depths[i];
         set &= -(depth > job.z);
-        pixel = (job.clear_color & -set) | (pixel & ~-set);
+        pixel = (job.color & -set) | (pixel & ~-set);
         depth = set ? job.z : depth;
     }
 }
@@ -253,8 +277,9 @@ int measure_text(char const *format, ...)
     return result;
 }
 
-__attribute__((__format__(printf, 6, 0)))
-void format_text_v(render_target& frame,
+__attribute__((__format__(printf, 7, 0)))
+void format_text_v(render_target& __restrict frame,
+    render_ctx * __restrict ctx,
     int x, int y, float z, uint32_t color,
     char const *format, va_list ap)
 {
@@ -266,27 +291,30 @@ void format_text_v(render_target& frame,
             x = frame.width + x - measurement;
         }
 
-        draw_text(frame, x, y, z, buffer.data(),
+        draw_text(frame, ctx, x, y, z, buffer.data(),
             buffer.data() + buffer.size(), 0, color);
     }
 }
 
-__attribute__((__format__(printf, 6, 7)))
-void format_text(render_target& frame,
+__attribute__((__format__(printf, 7, 8)))
+void format_text(render_target& __restrict frame,
+    render_ctx * __restrict ctx,
     int x, int y, float z, uint32_t color,
     char const *format, ...)
 {
     va_list ap;
     va_start(ap, format);
-    format_text_v(frame, x, y, z, color, format, ap);
+    format_text_v(frame, ctx, x, y, z, color, format, ap);
     va_end(ap);
 }
 
-void draw_text(render_target& frame, int x, int y, float z,
+void draw_text(render_target& __restrict frame,
+    render_ctx * __restrict ctx,
+    int x, int y, float z,
     char32_t const *text_st, char32_t const *text_en,
     int wrap_col, uint32_t color)
 {
-    ensure_scratch(frame.height);
+    ensure_scratch(ctx, frame.height);
 
     // Decompose into lines and recurse
     if (wrap_col > 0) {
@@ -296,7 +324,7 @@ void draw_text(render_target& frame, int x, int y, float z,
             if (first_newline == text_en)
                 first_newline = sane_min(text_en, text_st + wrap_col);
             size_t line_length = first_newline - text_st;
-            draw_text(frame, x, y, z,
+            draw_text(frame, ctx, x, y, z,
                 text_st, text_st + line_length, -1, color);
             y += glyphs.h;
             text_st += line_length + (text_st + line_length < text_en &&
@@ -317,33 +345,47 @@ void draw_text(render_target& frame, int x, int y, float z,
 
     glyph_info *info{};
 
-    for ( ; text_st < text_en; ++text_st, orig_x += info ? info->advance : 0) {
+    for ( ; text_st < text_en;
+            ++text_st, orig_x += info ? info->advance : 0) {
+        x = orig_x;
         char32_t character = *text_st;
         size_t glyph_index = find_glyph(character);
         if ((ssize_t)glyph_index < 0)
             continue;
         info = &glyphs.info[glyph_index];
-        x = orig_x;
 
-        for (int dy = y, ey = dy + glyphs.h;
+        if (likely(info && !is_combining_diacritic(character))) {
+        } else if (info) {
+            // combining diacritic width
+            // int cdw = info->ex - info->sx;
+            // // combining diacritic center
+            // int cdc = info->sx + cdw / 2;
+
+            //x = last_c - cdc;
+            x += info->sx;
+            //orig_x += info->sx;
+        }
+
+        for (int dy = y,
+                ey = dy + glyphs.h;
                 dy < ey && dy < frame.height; ++dy) {
-            if (x + (info->ex - info->sx) > 0 &&
-                    x < frame.width && y + glyphs.h >= 0) {
+            if (x + info->dw > 0 &&
+                    x < frame.width &&
+                    y + glyphs.h >= 0) {
                 size_t slot = dy % task_workers.size();
-                fill_job_batches[slot].emplace_back(
-                    frame, dy, x, y, z, glyph_index, color);
+                fill_job_batch(ctx, slot).emplace_back(
+                    frame, ctx, dy, x, y, z,
+                    glyph_index, color);
             }
         }
     }
 
-    for (size_t slot = 0; slot < task_workers.size(); ++slot) {
-        task_workers[slot].add(fill_job_batches[slot].data(),
-            fill_job_batches[slot].size(), false);
-        fill_job_batches[slot].clear();
-    }
+    commit_batches(ctx);
 }
 
-void draw_text(render_target& frame, int x, int y, float z,
+void draw_text(render_target& __restrict frame,
+    render_ctx * __restrict ctx,
+    int x, int y, float z,
     char const *utf8_st, char const *utf8_en,
     int wrap_col, uint32_t color)
 {
@@ -354,7 +396,15 @@ void draw_text(render_target& frame, int x, int y, float z,
     char32_t const *text_st = codepoints.data();
     char32_t const *text_en = text_st + codepoints.size();
 
-    draw_text(frame, x, y, z, text_st, text_en, wrap_col, color);
+    draw_text(frame, ctx,
+        x, y, z, text_st, text_en, wrap_col, color);
+}
+
+bool is_combining_diacritic(uint32_t codepoint)
+{
+    return (codepoint >= 0x0300 && codepoint <= 0x036F) ||
+           (codepoint >= 0x20D0 && codepoint <= 0x20FF) ||
+           (codepoint >= 0xFE20 && codepoint <= 0xFE2F);
 }
 
 // Convert the given range of UTF-8 to UCS32

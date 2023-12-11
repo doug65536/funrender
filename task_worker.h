@@ -102,23 +102,25 @@ public:
             after_add(true);
     }
 
-    void add(T const& item, bool allow_notify = true)
+    T &add(T const& item, bool allow_notify = true)
     {
         scoped_lock lock(unm->worker_lock);
         //bool notify = queue.empty();
-        queue.emplace_back(item);
+        T& returned_item = queue.emplace_back(item);
         if (allow_notify || queue.size() == high_water)
             after_add(true);
+        return returned_item;
     }
 
     template<typename ...Args>
-    void emplace(bool allow_notify, Args&& ...args)
+    T &emplace(bool allow_notify, Args&& ...args)
     {
         scoped_lock lock(unm->worker_lock);
         //bool notify = queue.empty();
-        queue.emplace_back(std::forward<Args>(args)...);
+        T &item = queue.emplace_back(std::forward<Args>(args)...);
         if (allow_notify || queue.size() == high_water)
             after_add(true);
+        return item;
     }
 
     void add(T&& item, bool allow_notify = true)
