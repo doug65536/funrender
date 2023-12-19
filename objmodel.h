@@ -105,7 +105,7 @@ public:
                             size_t constexpr phase_count =
                                 sizeof(member) / sizeof(*member);
                             if (phase < (int)phase_count) {
-                                f.*(member[phase]) = index;
+                                f.*(member[phase]) = index - 1;
                                 ++phase;
                                 index = 0;
                             } else {
@@ -549,14 +549,17 @@ class bsp_tree {
         tri() = default;
 
         tri(scaninfo const& v0,
-                scaninfo const& v1, scaninfo const& v2)
+                scaninfo const& v1,
+                scaninfo const& v2)
             : plane{plane_from_tri(v0, v1, v2)}
             , v{v0, v1, v2}
         {
         }
 
-        tri(scaninfo const& v0, scaninfo const& v1,
-                scaninfo const& v2, glm::vec4 const& plane)
+        tri(scaninfo const& v0,
+                scaninfo const& v1,
+                scaninfo const& v2,
+                glm::vec4 const& plane)
             : plane{plane}
             , v{v0, v1, v2}
         {
@@ -614,6 +617,7 @@ class bsp_tree {
         glm::vec4 plane;
         std::array<scaninfo, 3> v;
     };
+
     struct node {
         // xyz is center, w is squared radius
         glm::vec4 sphere;
@@ -777,3 +781,402 @@ private:
     std::unique_ptr<node> root;
     std::minstd_rand lcggen;
 };
+
+#include "abstract_vector.h"
+
+// F is a vector type, like vecf32x8, for 256-bit vector width
+// or vecf32x4 for 128-bit, or vecf32x16 for 512-bit, or whatever
+// a "bundle" is a whole vector, whatever number that is, like 8
+// It's AoSoA, but the innermost "array" is just the vector width
+template<typename F>
+class simd_raytracer {
+    // Vector component type
+    using C = component_of_t<F>;
+
+    // The code probably needs to be 32 bit components
+    // it needs reviewing to make sure this assert
+    // isn't needed
+    static_assert(std::is_same_v<C, float>,
+        "Requires single precision float"
+        " vector components in F");
+
+    // vec_sz would be 8 for 256-bit vector of float
+    static constexpr size_t vec_sz = vecinfo_t<F>::sz;
+
+    // Uncomment this if we ever want signed
+    //using I = typename vecinfo_t<F>::as_int;
+
+    // Unsigned vector
+    using U = typename vecinfo_t<F>::as_unsigned;
+
+    // one-bit-per-component bitmask
+    using M = typename vecinfo_t<F>::bitmask;
+public:
+    // Holds the volatile information about ray bundles
+    // To avoid the immutable data being on dirtied lines
+    // (The volatile part of the search)
+    struct ray_best_match {
+        // Holds the squared distance to the best match
+        F min_sqdist;
+
+        // Holds the index of the
+        // nearest intersecting triangle
+        // -1U means "not found"
+        U best_element;
+    };
+
+    // Holds a bundle of rays (the immutable part of the search)
+    struct ray_bundle {
+        // Origin
+        F ori_x;
+        F ori_y;
+        F ori_z;
+
+        // Direction
+        F dir_x;
+        F dir_y;
+        F dir_z;
+
+        // Color
+        F col_r;
+        F col_g;
+        F col_b;
+    };
+
+    // Holds a bundle of ray-triangle
+    // collision results
+    struct collision_bundle {
+        // Interpolated position
+        F px;
+        F py;
+        F pz;
+
+        // Interpolated texcoord
+        F tu;
+        F tv;
+
+        // Interpolated normal
+        F nx;
+        F ny;
+        F nz;
+    };
+
+    // An implementation of the Möller–Trumbore intersection algorithm
+    struct collision_detail {
+        template<bool check>
+        always_inline_method
+        void collide(
+            ray_bundle const &rays,
+            scaninfo const& v1_,
+            scaninfo const& v2_,
+            scaninfo const& v3_)
+        {
+            v1 = &v1_;
+            v2 = &v2_;
+            v3 = &v3_;
+
+            // Calculate two edges from common vertex
+
+            glm::vec3 e1 = glm::vec3(v2->p) -
+                glm::vec3(v1->p);
+
+            glm::vec3 e2 = glm::vec3(v3->p) -
+                glm::vec3(v1->p);
+
+            // p = ray_dir cross e2
+            F p_x, p_y, p_z;
+            cross(p_x, p_y, p_z,
+                rays.dir_x, rays.dir_y, rays.dir_z,
+                vecinfo_t<F>::vec_broadcast(e2.x),
+                vecinfo_t<F>::vec_broadcast(e2.y),
+                vecinfo_t<F>::vec_broadcast(e2.z));
+
+            // det = p dot e1
+            F determinants = dot(
+                p_x, p_y, p_z,
+                vecinfo_t<F>::vec_broadcast(e1.x),
+                vecinfo_t<F>::vec_broadcast(e1.y),
+                vecinfo_t<F>::vec_broadcast(e1.z));
+
+            C epsilon = FLT_EPSILON;
+
+            if constexpr (check) {
+                // See which lanes (rays) are ok
+                // "not ok" means the ray and
+                // plane apparently don't intersect
+                lanemask = determinants > FLT_EPSILON;
+            }
+
+            F inv_det = 1.0f / determinants;
+
+            // T = v1 - ray_origin
+            T_x = rays.ori_x - v1->p.x;
+            T_y = rays.ori_y - v1->p.y;
+            T_z = rays.ori_z - v1->p.z;
+
+            // u = (T dot p) / determinant
+            u = dot(T_x, T_y, T_z,
+                p_x, p_y, p_z) * inv_det;
+
+            if constexpr (check) {
+                // Not okay if intersection is outside triangle
+                lanemask &= u >= 0.0f;
+                lanemask &= u <= 1.0f;
+
+                if (vec_movemask(lanemask) == 0)
+                    return;
+            }
+
+            // Q = T cross e1
+            F Q_x, Q_y, Q_z;
+            cross(Q_x, Q_y, Q_z,
+                T_x, T_y, T_z,
+                vecinfo_t<F>::vec_broadcast(e1.x),
+                vecinfo_t<F>::vec_broadcast(e1.y),
+                vecinfo_t<F>::vec_broadcast(e1.z));
+
+            // v = (ray_dir dot Q) / determinants
+            v = dot(rays.dir_x, rays.dir_y, rays.dir_z,
+                Q_x, Q_y, Q_z) * inv_det;
+
+            if constexpr (check) {
+                // Not okay if outside triangle
+                lanemask &= v >= 0.0f;
+                lanemask &= v <= 1.0f;
+
+                if (vec_movemask(lanemask) == 0)
+                    return;
+            }
+
+            // T = (e1 dot Q) / determinants
+            T = dot(
+                vecinfo_t<F>::vec_broadcast(e2.x),
+                vecinfo_t<F>::vec_broadcast(e2.y),
+                vecinfo_t<F>::vec_broadcast(e2.z),
+                Q_x, Q_y, Q_z) * inv_det;
+
+            if constexpr (check) {
+                // Okay if in front of origin
+                lanemask &= T > epsilon;
+            }
+        }
+
+        always_inline_method
+        void update_best(int element_nr, ray_best_match &matches)
+        {
+            // Squared distance from the
+            // ray origin to the triangle
+            F sq_dist = T_x * T_x + T_y * T_y + T_z * T_z;
+
+            lanemask &= sq_dist < matches.min_sqdist;
+
+            // Avoid the stores below that have no effect,
+            // other than dirtying cache lines for nothing
+            if (vec_movemask(lanemask) == 0)
+                return;
+
+            // Write back improved minimums
+            matches.min_sqdist = vec_blend(
+                matches.min_sqdist, sq_dist, lanemask);
+
+            // Write out the closer element numbers
+            matches.best_element = vec_blend(matches.best_element,
+                vecinfo_t<U>::vec_broadcast(element_nr), lanemask);
+        }
+
+        // This expects that you have set up lanemask
+        always_inline_method
+        void finish(ray_bundle const& rays,
+            collision_bundle &collisions) const
+        {
+            F px = rays.ori_x + rays.dir_x * T_x;
+            F py = rays.ori_y + rays.dir_y * T_y;
+            F pz = rays.ori_z + rays.dir_z * T_z;
+
+            F w = 1.0f - u - v;
+
+            F tu = u * v1->t.x + v * v2->t.x + w * v3->t.x;
+            F tv = u * v1->t.y + v * v2->t.y + w * v3->t.y;
+
+            F nx = u * v1->n.x + v * v2->n.x + w * v3->n.x;
+            F ny = u * v1->n.y + v * v2->n.y + w * v3->n.y;
+            F nz = u * v1->n.z + v * v2->n.z + w * v3->n.z;
+
+            collisions.px = vec_blend(collisions.px, px, lanemask);
+            collisions.py = vec_blend(collisions.py, py, lanemask);
+            collisions.pz = vec_blend(collisions.pz, pz, lanemask);
+
+            collisions.tu = vec_blend(collisions.tu, tu, lanemask);
+            collisions.tv = vec_blend(collisions.tv, tv, lanemask);
+
+            collisions.nx = vec_blend(collisions.nx, nx, lanemask);
+            collisions.ny = vec_blend(collisions.ny, ny, lanemask);
+            collisions.nz = vec_blend(collisions.nz, nz, lanemask);
+        }
+
+        scaninfo const* v1;
+        scaninfo const* v2;
+        scaninfo const* v3;
+
+        U lanemask;
+
+        F T_x;
+        F T_y;
+        F T_z;
+
+        F T;
+        F u;
+        F v;
+    };
+
+    // AABB slab node
+    struct node {
+        // Cartesian AABB
+        F sx;   // left
+        F sy;   // bottom
+        F sz;   // far
+
+        F ex;   // right
+        F ey;   // top
+        F ez;   // near
+
+        // Returns a bitmask for each
+        uint32_t rays_intersect_slab(
+            ray_bundle const& rays) const
+        {
+            C const epsilon =
+                std::numeric_limits<C>::epsilon();
+
+            // See if nearly parallel
+            // and also not between the slabs
+            // on each axis
+
+            // ray is parallel to x
+            U not_par_to_x = (rays.dir_x < -epsilon) |
+                (rays.dir_x > epsilon);
+            // ray is parallel to y
+            U not_par_to_y = (rays.dir_y < -epsilon) |
+                (rays.dir_y > epsilon);
+            // ray is parallel to z
+            U not_par_to_z = (rays.dir_z < -epsilon) |
+                (rays.dir_z > epsilon);
+
+            // Keep the result for each ray that is
+            // not parallel to the axis or originates
+            // between the slab planes...
+            U keep = not_par_to_x |
+                ((rays.ori_x >= sx) &
+                (rays.ori_x <= ex));
+            // ...on each axis
+            keep &= not_par_to_y |
+                ((rays.ori_y >= sy) &
+                (rays.ori_y <= ey));
+            keep &= not_par_to_z |
+                ((rays.ori_z >= sz) &
+                (rays.ori_z <= ez));
+
+            // Return zero early if done already
+            if (vec_movemask(keep) == 0)
+                return 0;
+
+            int result = 0;
+
+            F inv = 1.0f / rays.dir_x;
+            F t1s = (sx - rays.ori_x) * inv;
+            F t2s = (ex - rays.ori_x) * inv;
+            F lo_ts = min(t1s, t2s);
+            F hi_ts = max(t1s, t2s);
+            result |= vec_movemask((hi_ts >= lo_ts) & keep);
+
+            // y
+            inv = 1.0f / rays.dir_y;
+            t1s = (sy - rays.ori_y) * inv;
+            t2s = (ey - rays.ori_y) * inv;
+            lo_ts = min(t1s, t2s);
+            hi_ts = max(t1s, t2s);
+            result |= vec_movemask((hi_ts >= lo_ts) & keep);
+
+            // z
+            inv = 1.0f / rays.dir_z;
+            t1s = (sz - rays.ori_z) * inv;
+            t2s = (ez - rays.ori_z) * inv;
+            lo_ts = min(t1s, t2s);
+            hi_ts = max(t1s, t2s);
+            result |= vec_movemask((hi_ts >= lo_ts) & keep);
+
+            return result;
+        }
+    };
+
+    // Updates the rays with the closer intersection,
+    // when tested against a closer triangle.
+    void apply_closer_intersection(
+        ray_bundle const &rays,
+        ray_best_match &matches,
+        scaninfo const *verts,
+        uint32_t const *indices,
+        uint32_t element_nr) const
+    {
+        // Fetch triangle vertices
+        scaninfo const& v1 = verts[indices[element_nr + 0]];
+        scaninfo const& v2 = verts[indices[element_nr + 1]];
+        scaninfo const& v3 = verts[indices[element_nr + 2]];
+
+        collision_detail collision;
+        // The lanemask does not need to
+        // be set when check=true
+        collision.template collide<true>(rays, v1, v2, v3);
+        collision.update_best(element_nr, matches);
+    }
+
+    void actual_intersection(
+        ray_bundle const& rays,
+        ray_best_match const& matches,
+        collision_bundle& collisions,
+        scaninfo const *verts,
+        uint32_t const *indices)
+    {
+        // Get a bitmask of lanes that found a best element
+        M found_any = vec_movemask(
+            matches.best_element != -1U);
+
+        collision_detail collision;
+        while (found_any) {
+            // Find the first lane that found something
+            int first_lane = ffs((uint32_t)found_any);
+
+            // Read the value of that component
+            int element_nr = matches.best_element[first_lane];
+
+            // Make a vector mask of lanes that are the same element
+            collision.lanemask = matches.best_element == element_nr;
+
+            // Bitmasks of lanes that are the same element
+            M same_element_bitmask = vec_movemask(collision.lanemask);
+
+            // Clear the bit for each lane that is this element
+            found_any &= ~same_element_bitmask;
+
+            scaninfo const& v1 = verts[indices[element_nr + 0]];
+            scaninfo const& v2 = verts[indices[element_nr + 1]];
+            scaninfo const& v3 = verts[indices[element_nr + 2]];
+
+            collision.template collide<false>(rays, v1, v2, v3);
+            collision.finish(rays, collisions);
+        }
+    }
+};
+
+extern template class simd_raytracer<vecf32auto>;
+extern template void simd_raytracer<vecf32auto>::
+    collision_detail::collide<true>(
+        ray_bundle const &rays,
+        scaninfo const& v1_,
+        scaninfo const& v2_,
+        scaninfo const& v3_);
+extern template void simd_raytracer<vecf32auto>::
+    collision_detail::collide<false>(
+        ray_bundle const &rays,
+        scaninfo const& v1_,
+        scaninfo const& v2_,
+        scaninfo const& v3_);

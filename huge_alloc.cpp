@@ -3,6 +3,7 @@
 #include <fstream>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 #ifndef __WIN32__
 #include <sys/mman.h>

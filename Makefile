@@ -30,8 +30,10 @@ CPU_COUNT := $(shell $(NPROC))
 ifeq ($(ARCH),x86_64)
 CXXFLAGS += -DARCH_X86_64
 #VECFLAGS = -DHAVE_HUGEPAGES=1
+
 VECFLAGS += -mtune=znver2 -mavx -mavx2 -mfma -mbmi -mbmi2 \
 	-DHAVE_HUGEPAGES=1
+
 #VECFLAGS = -DHAVE_VEC128=1
 VECFLAGS += -DHAVE_VEC256=1
 else ifeq ($(ARCH),aarch64)
@@ -46,10 +48,10 @@ endif
 ORIG_CXXFLAGS := $(CXXFLAGS)
 CXXFLAGS := -Wall -std=c++17 -ggdb3 \
 	$(ORIG_CXXFLAGS) \
-	-Werror=return-type -Werror=reorder-ctor \
+	-Werror=return-type -Werror=reorder \
 	-Werror=format \
 	-pthread \
-	-ffast-math -fno-plt \
+	-fno-plt \
 	$(VECFLAGS)
 
 
@@ -64,7 +66,7 @@ CXXFLAGS += -fsanitize=$(SANITIZE)
 endif
 
 ifeq ($(DEBUG),)
-CXXFLAGS += -Os -ftree-vectorize -flto
+CXXFLAGS += -Os -ftree-vectorize -flto -ffast-math -fassociative-math
 else
 CXXFLAGS += -O0
 endif

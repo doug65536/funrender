@@ -291,6 +291,7 @@ constexpr auto comp_count_v = comp_count<T>::value;
 
 #ifndef always_inline
 #define always_inline __attribute__((__always_inline__)) static inline
+#define always_inline_method __attribute__((__always_inline__)) inline
 #endif
 
 always_inline vecu32x8 vec_lo(vecu32x16 whole)
@@ -323,9 +324,24 @@ always_inline vecu32x4 vec_lo(vecu32x8 whole)
     };
 }
 
+always_inline veci32x4 vec_lo(veci32x8 whole)
+{
+    return veci32x4{
+        whole[0], whole[1], whole[2], whole[3]
+    };
+}
+
 always_inline vecu32x8 vec_combine(vecu32x4 lo, vecu32x4 hi)
 {
     return vecu32x8{
+        lo[0], lo[1], lo[2], lo[3],
+        hi[0], hi[1], hi[2], hi[3]
+    };
+}
+
+always_inline veci32x8 vec_combine(veci32x4 lo, veci32x4 hi)
+{
+    return veci32x8{
         lo[0], lo[1], lo[2], lo[3],
         hi[0], hi[1], hi[2], hi[3]
     };
@@ -401,7 +417,17 @@ struct vec_info_of_sz<16> {
     using as_unsigned = vecu32x16;
     using as_int = veci32x16;
 
+    using compact_bitmask = uint16_t;
+    using bitmask = unsigned;
+
     static constexpr size_t sz = 16;
+    static constexpr vecu32x16 lanebit[] = {
+        0x0001, 0x0002, 0x0004, 0x0008,
+        0x0010, 0x0020, 0x0040, 0x0080,
+        0x0100, 0x0200, 0x0400, 0x0800,
+        0x1000, 0x2000, 0x4000, 0x8000
+    };
+
     static constexpr vecu32x16 lanemask[] = {
         {   0,   0,   0,   0,   0,   0,   0,   0,    0,   0,   0,   0,   0,   0,   0,   0 },
         { -1U,   0,   0,   0,   0,   0,   0,   0,    0,   0,   0,   0,   0,   0,   0,   0 },
@@ -459,7 +485,15 @@ struct vec_info_of_sz<8> {
     using as_float = vecf32x8;
     using as_unsigned = vecu32x8;
     using as_int = veci32x8;
+
+    using compact_bitmask = uint8_t;
+    using bitmask = unsigned;
+
     static constexpr size_t sz = 8;
+    static constexpr vecu32x8 lanebit[] = {
+        0x01, 0x02, 0x04, 0x08,
+        0x10, 0x20, 0x40, 0x80
+    };
     static constexpr vecu32x8 lanemask[] = {
         {   0,   0,   0,   0,   0,   0,   0,   0 },
         { -1U,   0,   0,   0,   0,   0,   0,   0 },
@@ -530,6 +564,46 @@ always_inline vecf32x4 max(vecf32x4 const& a, vecf32x4 const& b)
 #endif
 }
 
+always_inline vecu32x8 min(vecu32x8 const &a, vecu32x8 const& b)
+{
+#if defined(__SSE2__)
+    vecu32x4 lo = cast_to<vecu32x4>(
+        _mm_min_epu32(
+            cast_to<__m128i>(vec_lo(a)),
+            cast_to<__m128i>(vec_lo(b))));
+    vecu32x4 hi = cast_to<vecu32x4>(
+        _mm_min_epu32(
+            cast_to<__m128i>(vec_hi(a)),
+            cast_to<__m128i>(vec_hi(b))));
+    return vec_combine(lo, hi);
+#else
+    return cast_to<vecu32x8>(
+        _mm256_min_epu32(
+            cast_to<__m256i>(a),
+            cast_to<__m256i>(b)));
+#endif
+}
+
+always_inline veci32x8 min(veci32x8 const &a, veci32x8 const& b)
+{
+#if defined(__SSE2__)
+    veci32x4 lo = cast_to<veci32x4>(
+        _mm_min_epi32(
+            cast_to<__m128i>(vec_lo(a)),
+            cast_to<__m128i>(vec_lo(b))));
+    veci32x4 hi = cast_to<veci32x4>(
+        _mm_min_epi32(
+            cast_to<__m128i>(vec_hi(a)),
+            cast_to<__m128i>(vec_hi(b))));
+    return vec_combine(lo, hi);
+#else
+    return cast_to<vecu32x8>(
+        _mm256_min_epu32(
+            cast_to<__m256i>(a),
+            cast_to<__m256i>(b)));
+#endif
+}
+
 always_inline vecf32x4 min(vecf32x4 const& a, vecf32x4 const& b)
 {
 #if defined(__SSE2__)
@@ -551,7 +625,8 @@ always_inline vecf32x4 min(vecf32x4 const& a, vecf32x4 const& b)
 #endif
 }
 
-always_inline vecf32x8 min(vecf32x8 const& a, vecf32x8 const& b)
+always_inline vecf32x8 min(
+    vecf32x8 const& a, vecf32x8 const& b)
 {
 #if defined(__AVX2__)
     return cast_to<vecf32x8>(
@@ -561,30 +636,25 @@ always_inline vecf32x8 min(vecf32x8 const& a, vecf32x8 const& b)
 #elif defined(__SSE2__)
     auto lo = cast_to<vecf32x4>(
         _mm_min_ps(
-        cast_to<__m128>(vec_lo(a)),
-        cast_to<__m128>(vec_lo(b))));
+            cast_to<__m128>(vec_lo(a)),
+            cast_to<__m128>(vec_lo(b))));
     auto hi = cast_to<vecf32x4>(
         _mm_min_ps(
-        cast_to<__m128>(vec_hi(a)),
-        cast_to<__m128>(vec_hi(b))));
+            cast_to<__m128>(vec_hi(a)),
+            cast_to<__m128>(vec_hi(b))));
     return vec_combine(lo, hi);
 #elif defined(__ARM_NEON)
     auto lo = cast_to<vecf32x4>(
         vminq_f32(
-        cast_to<__m128>(vec_lo(a)),
-        cast_to<__m128>(vec_lo(b))));
+            cast_to<__m128>(vec_lo(a)),
+            cast_to<__m128>(vec_lo(b))));
     auto hi = cast_to<vecf32x4>(
         vminq_f32(
-        cast_to<__m128>(vec_hi(a)),
-        cast_to<__m128>(vec_hi(b))));
+            cast_to<__m128>(vec_hi(a)),
+            cast_to<__m128>(vec_hi(b))));
     return vec_combine(lo, hi);
 #else
-    return {
-        a[0] <= b[0] ? a[0] : b[0],
-        a[1] <= b[1] ? a[1] : b[1],
-        a[2] <= b[2] ? a[2] : b[2],
-        a[3] <= b[3] ? a[3] : b[3]
-    };
+    return vec_blend(a, b, a > b);
 #endif
 }
 
@@ -593,35 +663,30 @@ always_inline vecf32x8 max(vecf32x8 const& a, vecf32x8 const& b)
 #if defined(__AVX2__)
     return cast_to<vecf32x8>(
         _mm256_max_ps(
-        cast_to<__m256>(a),
-        cast_to<__m256>(b)));
+            cast_to<__m256>(a),
+            cast_to<__m256>(b)));
 #elif defined(__SSE2__)
     auto lo = cast_to<vecf32x4>(
         _mm_max_ps(
-        cast_to<__m128>(vec_lo(a)),
-        cast_to<__m128>(vec_lo(b))));
+            cast_to<__m128>(vec_lo(a)),
+            cast_to<__m128>(vec_lo(b))));
     auto hi = cast_to<vecf32x4>(
         _mm_max_ps(
-        cast_to<__m128>(vec_hi(a)),
-        cast_to<__m128>(vec_hi(b))));
+            cast_to<__m128>(vec_hi(a)),
+            cast_to<__m128>(vec_hi(b))));
     return vec_combine(lo, hi);
 #elif defined(__ARM_NEON)
     auto lo = cast_to<vecf32x4>(
         vmaxq_f32(
-        cast_to<__m128>(vec_lo(a)),
-        cast_to<__m128>(vec_lo(b))));
+            cast_to<__m128>(vec_lo(a)),
+            cast_to<__m128>(vec_lo(b))));
     auto hi = cast_to<vecf32x4>(
         vmaxq_f32(
-        cast_to<__m128>(vec_hi(a)),
-        cast_to<__m128>(vec_hi(b))));
+            cast_to<__m128>(vec_hi(a)),
+            cast_to<__m128>(vec_hi(b))));
     return vec_combine(lo, hi);
 #else
-    return {
-        a[0] <= b[0] ? a[0] : b[0],
-        a[1] <= b[1] ? a[1] : b[1],
-        a[2] <= b[2] ? a[2] : b[2],
-        a[3] <= b[3] ? a[3] : b[3]
-    };
+    return vec_blend(a, b, b > a);
 #endif
 }
 
@@ -666,7 +731,15 @@ struct vec_info_of_sz<4> {
     using as_float = vecf32x4;
     using as_unsigned = vecu32x4;
     using as_int = veci32x4;
+
+    using compact_bitmask = uint8_t;
+    using bitmask = unsigned;
+
     static constexpr size_t sz = 4;
+    static constexpr vecu32x4 lanebit[] = {
+        0x0001, 0x0002, 0x0004, 0x0008
+    };
+
     static constexpr vecu32x4 lanemask[] = {
         {   0,   0,   0,   0 },
         { -1U,   0,   0,   0 },
@@ -702,27 +775,39 @@ struct vec_info_of_sz<2> {
     using as_float = vecf64x2;
     using as_unsigned = vecu64x2;
     using as_int = veci64x2;
+
+    using compact_bitmask = uint8_t;
+    using bitmask = unsigned;
+
     static constexpr size_t sz = 2;
+    static constexpr vecu64x2 lanebit[] = {
+        0x0001, 0x0002
+    };
+
     static constexpr vecu32x4 lanemask[] = {
         {   0,   0,   0,   0 },
         { -1U,   0,   0,   0 },
         { -1U, -1U,   0,   0 }
     };
+
     static constexpr vecf64x2 laneoffs = {
         0.0f,  1.0f
     };
+
     always_inline constexpr vecf64x2 vec_broadcast(double n)
     {
         return vecf64x2{
             n, n
         };
     }
+
     always_inline constexpr vecu64x2 vec_broadcast(uint64_t n)
     {
         return vecu64x2{
             n, n
         };
     }
+
     always_inline constexpr veci64x2 vec_broadcast(int64_t n)
     {
         return veci64x2{
@@ -937,7 +1022,8 @@ always_inline vecf32x4 vec_blend(
 #endif
 }
 
-// It sucks, on AMD anyway. A bunch of scalar loads and inserts beat it, lol.
+// It sucks, on AMD anyway.
+// A bunch of scalar loads and inserts beat it, lol.
 #define GATHER_IS_GOOD 1
 
 // 128-bit gather
@@ -963,6 +1049,83 @@ always_inline vecu32x4 vec_gather(uint32_t const *buffer,
 #endif
     return result;
 }
+
+//
+// 256-bit scatter
+
+#if defined(__AVX512F__)
+always_inline void vec_scatter(float *addr,
+    vecu32x8 const& indices, vecf32x8 const& values)
+{
+    _mm256_i32scatter_ps(addr,
+        cast_to<__m256i>(indices),
+        cast_to<__m256>(values),
+        sizeof(float));
+}
+
+always_inline void vec_scatter(uint32_t *addr,
+    vecu32x8 const& indices, vecu32x8 const& values)
+{
+    _mm256_i32scatter_epi32(addr,
+        cast_to<__m256i>(indices),
+        cast_to<__m256i>(values),
+        sizeof(uint32_t));
+}
+
+always_inline void vec_scatter(int32_t *addr,
+    vecu32x8 const& indices, veci32x8 const& values)
+{
+    _mm256_i32scatter_epi32(addr,
+        cast_to<__m256i>(indices),
+        cast_to<__m256i>(values),
+        sizeof(int32_t));
+}
+#endif
+
+//
+// 128-bit scatter
+
+template<typename V,
+    typename U,
+    typename C,
+    size_t N>
+always_inline void vec_scatter(
+    C *addr, U const& indices, V const& values)
+{
+    for (size_t i = 0; i < N; ++i)
+        addr[indices[i]] = values[i];
+}
+
+template<typename X,
+    typename V = to_vec_t<X>,
+    typename C = component_of_t<X>,
+    size_t N = comp_count_v<X>,
+    typename U = typename V::to_unsigned>
+always_inline void vec_scatter(
+    C *addr, U indices, X values)
+{
+    vec_scatter(addr, indices, values);
+}
+
+#if defined(__AVX512F__)
+always_inline void vec_scatter(float *addr,
+    vecu32x4 const& indices, vecf32x4 const& values)
+{
+    _mm_i32scatter_ps(addr,
+        cast_to<__m128i>(indices),
+        cast_to<__m128>(values),
+        sizeof(float));
+}
+
+always_inline void vec_scatter(int32_t *addr,
+    vecu32x4 const& indices, veci32x4 const& values)
+{
+    _mm_i32scatter_epi32(addr,
+        cast_to<__m128i>(indices),
+        cast_to<__m128i>(values),
+        sizeof(int32_t));
+}
+#endif
 
 // 256-bit gather
 always_inline vecu32x8 vec_gather(uint32_t const *buffer,
@@ -1157,3 +1320,61 @@ always_inline vecf32x16 abs(vecf32x16 f)
 {
     return cast_to<vecf32x16>(cast_to<vecu32x16>(f) & INT_MAX);
 }
+
+template<typename V>
+always_inline void cross(
+    V& out_x, V& out_y, V& out_z,
+    V const& lhs_x, V const& lhs_y, V const& lhs_z,
+    V const& rhs_x, V const& rhs_y, V const& rhs_z)
+{
+    V tmp_x = lhs_y * rhs_z - rhs_y * lhs_z;
+    V tmp_y = lhs_z * rhs_x - rhs_z * lhs_x;
+    V tmp_z = lhs_x * rhs_y - rhs_x * lhs_y;
+    out_x = tmp_x;
+    out_y = tmp_y;
+    out_z = tmp_z;
+}
+
+template<typename V>
+always_inline void cross_inplace(
+    V& lhs_x, V& lhs_y, V& lhs_z,
+    V const& rhs_x, V const& rhs_y, V const& rhs_z)
+{
+    V tmp_x = lhs_y * rhs_z - rhs_y * lhs_z;
+    V tmp_y = lhs_z * rhs_x - rhs_z * lhs_x;
+    V tmp_z = lhs_x * rhs_y - rhs_x * lhs_y;
+    lhs_x = tmp_x;
+    lhs_y = tmp_y;
+    lhs_z = tmp_z;
+}
+
+// SIMD dot product
+template<typename V>
+always_inline V dot(
+    V const& lhs_x, V const& lhs_y, V const& lhs_z,
+    V const& rhs_x, V const& rhs_y, V const& rhs_z)
+{
+    return lhs_x * rhs_x + lhs_y * rhs_y + lhs_z * rhs_z;
+}
+
+// Return lowest set bit, or -1 if no bits set at all
+always_inline int ffs(uint32_t n)
+{
+    return __builtin_ffs(n) - 1;
+}
+
+// Return lowest set bit, or -1 if no bits set at all
+always_inline int ffs(uint64_t n)
+{
+    return __builtin_ffsll(n) - 1;
+}
+
+#if HAVE_VEC512
+using vecf32auto = vecf32x16;
+#elif HAVE_VEC256
+using vecf32auto = vecf32x8;
+#elif HAVE_VEC128
+using vecf32auto = vecf32x4;
+#else
+#error Unknown prerferred vector size
+#endif

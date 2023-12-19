@@ -221,19 +221,30 @@ uint64_t glyph_bits(int index, int row)
 void glyph_worker(size_t worker_nr, fill_job &job)
 {
     glyph_info const &info = glyphs.info[job.glyph_index];
-    uint64_t data = glyph_bits(job.glyph_index, job.row - job.box[1]);
+
+    uint64_t data = glyph_bits(job.glyph_index,
+        job.row - job.box[1]);
+
     size_t pixel_index = job.fp.pitch *
             (job.fp.top + job.row) +
             job.box[0] + job.fp.left;
+
     uint32_t *pixels = &job.fp.pixels[pixel_index];
+
     float *depths = &job.fp.z_buffer[pixel_index];
+
     for (size_t bit = info.dw, i = 0;
             data && bit > 0; ++i, --bit) {
         bool set = data & (uint64_t(1) << (bit - 1));
+
         uint32_t &pixel = pixels[i];
+
         float &depth = depths[i];
+
         set &= -(depth > job.z);
+
         pixel = (job.color & -set) | (pixel & ~-set);
+
         depth = set ? job.z : depth;
     }
 }

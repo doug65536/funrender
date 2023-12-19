@@ -164,7 +164,7 @@ int setup(render_ctx * __restrict ctx, int width, int height)
         obj_file_loader obj;
         obj.load(command_line_files.front().c_str());
         mesh = obj.instantiate();
-        mesh.scale(0.1f);
+        //mesh.scale(0.1f);
         mesh.dump_info(std::cerr);
     }
 
@@ -412,8 +412,8 @@ void user_frame(render_target& __restrict frame,
                     frame.height * 0.95f;
                 //zofs[i] = (float)rand() / RAND_MAX * 19.0f + 1.0f;
                 zofs[i] = i * 8.0f;
-                rad[i] = std::powf(2.0f,
-                    (float)rand() / (RAND_MAX+1LL) * 5.9f + 4.0f);
+                rad[i] = std::pow(2.0f, (float)rand() /
+                    (RAND_MAX+1LL) * 5.9f + 4.0f);
             }
 
             //col[i] = (float)rand() / RAND_MAX * 0x1000000;
@@ -474,6 +474,11 @@ void user_frame(render_target& __restrict frame,
 
         print_vector(std::cerr, mouselook_pos) << ' ' <<
             mouselook_pitch << ' ' << mouselook_yaw << '\n';
+
+        std::array<float, 2> edge_load_factors = get_edge_stats();
+        std::cerr << "Edge table load factors: " <<
+            edge_load_factors[0] << ", " <<
+            edge_load_factors[1] << '\n';
     }
 
     static size_t const cpu_count = std::thread::hardware_concurrency();

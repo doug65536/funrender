@@ -71,6 +71,17 @@ static void (*force_color_worker_ptr)(
     size_t worker_nr, fill_job &job);
 
 struct render_ctx {
+    render_ctx()
+    {
+        std::for_each(std::begin(light_info), std::end(light_info),
+            [&](glm::vec3 &li) {
+                li.x = 1.0f;
+            });
+    }
+    render_ctx(render_ctx const&) = default;
+    render_ctx(render_ctx&&) = default;
+    ~render_ctx() = default;
+
     bool envmap{};
     glm::vec3 worldspace_cam_pos;
 
@@ -249,11 +260,14 @@ bool mouselook_enabled;
 bool mouselook_pressed[6]; // WASDRF
 // float mouselook_yaw = 0.0f;
 // float mouselook_pitch = 0.0f;
-float mouselook_pitch = 1.23f;
-float mouselook_yaw = -2.92f;
+// float mouselook_pitch = 1.23f;
+// float mouselook_yaw = -2.92f;
+float mouselook_pitch = 0;
+float mouselook_yaw = 0;
 float mouselook_yaw_scale = -0.01f;
 float mouselook_pitch_scale = -0.01f;
-glm::vec3 mouselook_pos{1029.33,0,388.895};
+//glm::vec3 mouselook_pos{1029.33,0,388.895};
+glm::vec3 mouselook_pos{0.0f, 0.0f, 1.0f};
 glm::vec3 mouselook_vel;
 glm::vec3 mouselook_acc;
 glm::vec3 mouselook_px;
@@ -560,7 +574,7 @@ void fill_mainloop(
         F z_vec = (n_vec * diff.p.z) + work.first.p.z;
 
         // Fetch z-buffer values (to see if new pixels are closer)
-        F depths = *(F*)depth_io; // _mm256_load_ps(depth_io);
+        F depths = *(F*)depth_io;
 
         if constexpr (test_z) {
             // Only write pixels that are closer
@@ -597,7 +611,7 @@ void fill_mainloop(
                     u_vec *= oow_vec;
                 } else {
                     // Interpolate the cubemap reflection vectors
-                    // in 3d texcoord stp
+                    // in 3d texcoord stp (which are over w, actually)
                     F cs_vec = (n_vec * diff.t.s) + work.first.t.s;
                     F ct_vec = (n_vec * diff.t.t) + work.first.t.t;
                     F cp_vec = (n_vec * diff.t.p) + work.first.t.p;
@@ -969,7 +983,17 @@ bool handle_key_down_event(SDL_KeyboardEvent const& e)
         break;
 
     case SDLK_z:
+        // Z key
         if (is_keydown) {
+            mouselook_pitch = 0.0f;
+            mouselook_yaw = 0.0f;
+        }
+        break;
+
+    case SDLK_x:
+        // X key
+        if (is_keydown) {
+            mouselook_pos = { 0.0f, 0.0f, 1.0f };
             mouselook_pitch = 0.0f;
             mouselook_yaw = 0.0f;
         }
@@ -1220,6 +1244,7 @@ void render(render_ctx * __restrict ctx)
     }
 #endif
 
+    fp.edges_lookup_load_factor = fp.edges_lookup.load_factor();
     fp.edges.clear();
     fp.edges_lookup.clear();
 }
@@ -1358,7 +1383,7 @@ void set_light_pos(render_ctx * __restrict ctx,
     }
 }
 
-void commit_batches(render_ctx * __restrict ctx)
+void commit_batches(render_ctx * __restrict ctx, bool allow_notify)
 {
     for (size_t slot = 0; slot < task_workers.size(); ++slot) {
         auto &batch = ctx->fill_job_batches[slot];
@@ -1423,9 +1448,18 @@ std::vector<std::string> command_line_files;
 template<typename T>
 static void setup_worker_code()
 {
+    // behaviour is undefined if color and zwrite are both disabled
+    // so the 3 "bits" give 6 (2^3-2) usable combinations
+    // because of the z_test then do nothing
+    // and no ztest then do nothing cases
+
+    // span=color+depth
+    // z_test enabled
     fill_span_worker_ptr = span_worker<T>;//wc, tz, wz
     fill_depth_worker_ptr = span_worker<T, false>;
     fill_color_worker_ptr = span_worker<T, true, true, false>;
+
+    // z_test disabled
     force_span_worker_ptr = span_worker<T, true, false>;
     force_depth_worker_ptr = span_worker<T, false, false, true>;
     force_color_worker_ptr = span_worker<T, true, false, false>;
@@ -1458,7 +1492,8 @@ int main(int argc, char const *const *argv)
         }
 
         if (!std::filesystem::exists(argv[i])) {
-            std::cerr << "File not found: " << argv[i] << "\n";
+            std::cerr << "File not found: " <<
+                argv[i] << "\n";
             return EXIT_FAILURE;
         }
 
@@ -1588,7 +1623,7 @@ void interp_edge(render_target& __restrict fp,
         p1 = &v0;
         fheight = -fheight;
     }
-    assume(fheight >= 0.0f);
+    assert(fheight >= 0.0f);
     if (fheight < 1.0f)
         return;
     scaninfo diff = *p1 - *p0;
@@ -1614,7 +1649,7 @@ void interp_edge(render_target& __restrict fp,
 std::vector<fill_job> &fill_job_batch(
     render_ctx *__restrict ctx, size_t slot)
 {
-    return ctx->fill_job_batches[slot];
+    return ctx->fill_job_batches.at(slot);
 }
 
 void ensure_scratch(render_ctx * __restrict ctx, size_t height)
@@ -1663,12 +1698,14 @@ void fill_box(render_target& __restrict fp,
     size_t slot = sy % task_workers.size();
     for (int y = sy; y <= ey; ++y) {
         assume(y % task_workers.size() == slot);
-        task_workers[slot].emplace(false, fp, ctx,
+        fill_job_batch(ctx, slot).emplace_back(fp, ctx,
             y, sx, sy, ex, ey, z, color, border_table);
 
         ++slot;
         slot &= -(slot < task_workers.size());
     }
+
+    commit_batches(ctx, false);
 }
 
 void texture_raw_triangle(render_target& __restrict fp,
@@ -1732,13 +1769,7 @@ void texture_raw_triangle(render_target& __restrict fp,
             y, row.range[0], row.range[1]);
     }
 
-    for (size_t i = 0; i < task_workers.size(); ++i) {
-        auto &batch = fill_job_batch(ctx, i);
-        if (!batch.empty()) {
-            task_workers[i].add(batch.data(), batch.size(), false);
-            batch.clear();
-        }
-    }
+    commit_batches(ctx);
 }
 
 
@@ -1826,7 +1857,10 @@ static void light_vertex(render_ctx * __restrict ctx,
             float &spotlight_exponent = ctx->light_info[light].y;
             float &light_shininess = ctx->light_info[light].z;
 
-            if (spotlight_cutoff != 1.0f) {
+            if (spotlight_cutoff == 1.0f) {
+                // Omnidirectional light
+                color += ctx->light_diffuse[light] * diffuse_cos;
+            } else {
                 // Spot light cutoff
                 if (diffuse_cos > spotlight_cutoff) {
                     // Outside umbra (lit volume)
@@ -1839,9 +1873,6 @@ static void light_vertex(render_ctx * __restrict ctx,
                     color += ctx->light_diffuse[light] *
                         spotlight_effect;
                 }
-            } else {
-                // Omnidirectional light
-                color += ctx->light_diffuse[light] * diffuse_cos;
             }
 
             // Compute the specular reflection
@@ -1873,7 +1904,7 @@ static void light_vertex(render_ctx * __restrict ctx,
 static scaninfo *scaninfo_transform(
     render_target& __restrict fp,
     render_ctx * __restrict ctx,
-    scaninfo const *vinp, size_t count)
+    scaninfo const *vinp, size_t &count)
 {
     ctx->reset_clip_scratch(count);
     size_t const parallel_threshold = 4096;
@@ -1914,6 +1945,7 @@ static scaninfo *scaninfo_transform(
         for (auto &worker : threads)
             worker.join();
     }
+    count = ctx->vinp_scratch.size();
     return ctx->vinp_scratch.data();
 }
 
@@ -1940,18 +1972,16 @@ static void project_to_viewport(
     render_target & __restrict fp,
     scaninfo *verts, size_t count);
 
-void draw_polygon(render_target& __restrict fp,
-    render_ctx * __restrict ctx,
-    scaninfo const *user_verts, size_t count)
+scaninfo *clip_verts(render_ctx * __restrict ctx,
+    scaninfo const *verts, size_t &count)
 {
-    scaninfo *verts = scaninfo_transform(
-        fp, ctx, user_verts, count);
+    //scaninfo *verts = ctx->vinp_scratch.data();
+    // size_t count = ctx->vinp_scratch.size();
 
-    // Do 0-to-1, 1-to-2, 2-to-0
     for (size_t plane = 0;
 
             // condition
-            plane < 6 && ctx->vinp_scratch.size() >= 3;
+            plane < 6 && count >= 3;
 
             // increment
             ++plane,
@@ -1984,12 +2014,15 @@ void draw_polygon(render_target& __restrict fp,
         // If every vertex is clipped by one of the planes, it's culled
         if (need_intersection) {
             ++ctx->stats.culled;
-            return;
+            count = 0;
+            break;
         }
 
         // If nothing even touched a clip plane, skip all that
         if (!need_union) {
             ++ctx->stats.unclipped;
+            std::copy(verts, verts + count,
+                std::back_inserter(ctx->vinp_scratch));
             break;
         }
 
@@ -2045,7 +2078,25 @@ void draw_polygon(render_target& __restrict fp,
         }
     }
 
-    // This could happen?
+    return ctx->vinp_scratch.data();
+}
+
+void draw_polygon(render_target& __restrict fp,
+    render_ctx * __restrict ctx,
+    scaninfo const *user_verts, size_t count,
+    bool skip_xform)
+{
+    assert(count >= 3);
+
+    scaninfo *verts;
+    if (!skip_xform) {
+        verts = scaninfo_transform(fp, ctx, user_verts, count);
+        verts = clip_verts(ctx, verts, count);
+    } else {
+        verts = clip_verts(ctx, user_verts, count);
+        verts = verts;
+    }
+
     if (!count)
         return;
 
@@ -2063,8 +2114,7 @@ void project_to_viewport(render_target & __restrict fp,
 {
     float frame_width = fp.width;
     float frame_height = fp.height;
-    for (size_t i = 0; i < count; ++i)
-    {
+    for (size_t i = 0; i < count; ++i) {
         scaninfo &vertex = verts[i];
         // Divide x, y, and z by w, and store inverse w in w
         float oow = 1.0f / vertex.p.w;
@@ -2165,16 +2215,7 @@ void draw_elements(render_target & __restrict fp,
             (*xfv)[elements[i+1]],
             (*xfv)[elements[i+2]]
         };
-        draw_polygon(fp, ctx, tri.data(), tri.size());
-    }
-}
-
-void commit_batches(render_ctx * __restrict ctx, bool allow_notify)
-{
-    for (size_t i = 0; i < task_workers.size(); ++i) {
-        task_workers[i].add(ctx->fill_job_batches[i].data(),
-            ctx->fill_job_batches[i].size(), allow_notify);
-        ctx->fill_job_batches[i].clear();
+        draw_polygon(fp, ctx, tri.data(), tri.size(), true);
     }
 }
 
@@ -2274,6 +2315,14 @@ render_target create_cubemap_target(int width, int height)
 draw_stats const *get_draw_stats(render_ctx *__restrict ctx)
 {
     return &ctx->stats;
+}
+
+std::array<float, 2> get_edge_stats()
+{
+    return {
+        render_targets[0].edges_lookup_load_factor,
+        render_targets[1].edges_lookup_load_factor
+    };
 }
 
 void set_envmap(render_ctx * __restrict ctx, bool envmap)

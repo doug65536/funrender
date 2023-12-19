@@ -6,3 +6,5 @@
 // #include <glm/glm.hpp>
 
 #include "objmodel.h"
+
+template class simd_raytracer<vecf32auto>;

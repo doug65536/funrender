@@ -64,6 +64,18 @@ struct scaninfo {
         };
     }
 
+    friend scaninfo operator-(float lhs,
+        scaninfo const& rhs)
+    {
+        return {
+            lhs - rhs.t,
+            lhs - rhs.p,
+            lhs - rhs.n,
+            lhs - rhs.c,
+            lhs - rhs.u
+        };
+    }
+
     scaninfo operator+(scaninfo const& rhs) const
     {
         return {
@@ -170,22 +182,19 @@ template<>
 struct std::hash<scaninfo> {
     std::size_t operator()(scaninfo const& rhs) const
     {
-        #if 0
-        // Horrible!
-        return hash_bytes(this, sizeof(this));
-        #else
-        // Wow
         std::size_t seed = 0;
         hash_combine(seed, std::hash<float>()(rhs.t.s));
         hash_combine(seed, std::hash<float>()(rhs.t.t));
+        // don't need t.p, it's (partly) implied by s and t if used
         hash_combine(seed, std::hash<float>()(rhs.p.x));
         hash_combine(seed, std::hash<float>()(rhs.p.y));
         hash_combine(seed, std::hash<float>()(rhs.p.z));
+        // don't need p.w in hash, the z there covers it well enough
         hash_combine(seed, std::hash<float>()(rhs.n.x));
         hash_combine(seed, std::hash<float>()(rhs.n.y));
-        hash_combine(seed, std::hash<float>()(rhs.n.z));
+        // don't need n.z, it's largely implied by n.x and n.y
+        // don't need u.xyz in hash - it's usually not used
         return seed;
-        #endif
     }
 };
 
@@ -252,6 +261,7 @@ struct render_target {
 
     std::vector<scaninfo> edges;
     std::unordered_map<scaninfo, unsigned> edges_lookup;
+    float edges_lookup_load_factor{};
 };
 
 size_t hash_bytes(void const *data, size_t size);
@@ -302,7 +312,8 @@ std::ostream &print_vector(std::ostream &out,
 
 void draw_polygon(render_target& __restrict frame,
     render_ctx * __restrict ctx,
-    scaninfo const *vinp, size_t count);
+    scaninfo const *vinp, size_t count,
+    bool skip_xform = false);
 
 void draw_polygon(render_target &__restrict frame,
                      render_ctx *__restrict ctx,
@@ -476,3 +487,5 @@ void set_depth_mask(render_ctx * __restrict ctx, bool depth_mask);
 void set_depth_test(render_ctx * __restrict ctx, bool depth_test);
 void push_masks(render_ctx * __restrict ctx);
 void pop_masks(render_ctx * __restrict ctx);
+
+std::array<float, 2> get_edge_stats();
