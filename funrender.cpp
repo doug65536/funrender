@@ -160,6 +160,8 @@ uint32_t *load_image(render_ctx * __restrict ctx,
 
 int setup(render_ctx * __restrict ctx, int width, int height)
 {
+    setup_raytrace();
+
     if (!command_line_files.empty()) {
         obj_file_loader obj;
         obj.load(command_line_files.front().c_str());
@@ -354,6 +356,10 @@ void user_frame(render_target& __restrict frame,
     view = glm::rotate(view, -mouselook_yaw,
         glm::vec3(0.0f, 1.0f, 0.0f));
 
+    if (raytrace)
+        test_raytrace(frame);
+
+
     view = glm::translate(view, -mouselook_pos);
 
     set_transform(ctx, &view, nullptr);
@@ -384,7 +390,7 @@ void user_frame(render_target& __restrict frame,
         //     " million elements per second\n";
     }
 
-    size_t constexpr triangle_cnt = 400;
+    size_t constexpr triangle_cnt = 1;
     static float ang[triangle_cnt];
     static float xofs[triangle_cnt];
     static float yofs[triangle_cnt];

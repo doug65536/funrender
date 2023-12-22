@@ -1,10 +1,19 @@
 #!/bin/bash
 
+ABS_SRC_DIR="$(realpath "$(dirname "$0")")"
+ABS_BUILD_DIR=$PWD
+BUILD_DIR=$(realpath --relative-to="$ABS_BUILD_DIR" "$ABS_BUILD_DIR")
+SRC_DIR=$(realpath --relative-to="$ABS_BUILD_DIR" "$ABS_SRC_DIR")
+
 MKFILE=config.mk
 
 [[ -z $CXX ]] && CXX=c++
 
 declare -a captured_vars=(
+    ABS_SRC_DIR
+    ABS_BUILD_DIR
+    BUILD_DIR
+    SRC_DIR
     CC
     CFLAGS
     CXX
@@ -83,3 +92,13 @@ for name in ${checked_cxx_headers[@]}; do
 done
 
 echo "Generated $MKFILE"
+
+# Write link to makefile, in case it is out of source
+if [[ "$ABS_BUILD_DIR" != "$ABS_SRC_DIR" ]]; then
+    if [[ ! -e "$ABS_BUILD_DIR/Makefile" ]]; then
+        ln -s "$ABS_SRC_DIR/Makefile" "$ABS_BUILD_DIR/Makefile"
+    else
+        echo "Makefile already exists in the build directory." \
+            " Not creating a symlink."
+    fi
+fi

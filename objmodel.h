@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 #include "funsdl.h"
 #include "likely.h"
+#include "huge_alloc.h"
 
 class obj_file_loader {
 public:
@@ -306,8 +307,10 @@ public:
         }
     };
 
+    using vertex_type = scaninfo;
+
     struct loaded_mesh {
-        std::vector<scaninfo> vertices;
+        std::vector<vertex_type> vertices;
         std::vector<uint32_t> elements;
         std::vector<material_info> materials;
         std::vector<uint32_t> mtl_boundaries;
@@ -318,7 +321,7 @@ public:
         void scale(float multiplier)
         {
             std::transform(vertices.begin(), vertices.end(), vertices.begin(),
-                [multiplier](scaninfo item) {
+                [multiplier](vertex_type item) {
                     item.p = glm::vec4(glm::vec3(item.p) * multiplier,
                         item.p.w);
                     return item;
@@ -338,8 +341,8 @@ public:
     loaded_mesh instantiate()
     {
         // Make dedup lookup table, value is its index in vertex array
-        using scaninfo_lookup_t = std::unordered_map<scaninfo, size_t>;
-            scaninfo_lookup_t scaninfo_lookup;
+        using vertex_type_lookup_t = std::unordered_map<vertex_type, size_t>;
+            vertex_type_lookup_t vertex_type_lookup;
 
         std::vector<uint32_t> polygon_elements;
 
@@ -347,22 +350,22 @@ public:
 
         assert(face_starts_by_mtlidx.size() == faces_by_mtlidx.size());
 
-        using scaninfos_fvn_key = std::pair<uint32_t, uint32_t>;
+        using vertex_types_fvn_key = std::pair<uint32_t, uint32_t>;
 
         struct hasher {
-            size_t operator()(scaninfos_fvn_key const& item) const
+            size_t operator()(vertex_types_fvn_key const& item) const
             {
                 return std::hash<uint32_t>()(item.first) * 31 +
                     std::hash<uint32_t>()(item.second);
             }
         };
 
-        // Key is {vertex_nr, sg}, value is list of scaninfo indices
-        using scaninfos_from_vertex_nr_table = std::unordered_map<
-            scaninfos_fvn_key, std::vector<size_t>,
-            hasher, std::equal_to<scaninfos_fvn_key>>;
+        // Key is {vertex_nr, sg}, value is list of vertex_type indices
+        using vertex_types_from_vertex_nr_table = std::unordered_map<
+            vertex_types_fvn_key, std::vector<size_t>,
+            hasher, std::equal_to<vertex_types_fvn_key>>;
 
-        scaninfos_from_vertex_nr_table scaninfos_from_vertex_nr;
+        vertex_types_from_vertex_nr_table vertex_types_from_vertex_nr;
 
         uint32_t face_nr = 0;
         size_t sg_index = 0;
@@ -378,14 +381,14 @@ public:
 
             for (face_ent const& f : faces_by_mtlidx[m]) {
                 // Piece together the vertex from the face table
-                scaninfo vertex = from_face(f, current_smoothing_group);
+                vertex_type vertex = from_face(f, current_smoothing_group);
 
-                auto ins = scaninfo_lookup.emplace(
-                    vertex, scaninfo_lookup.size());
+                auto ins = vertex_type_lookup.emplace(
+                    vertex, vertex_type_lookup.size());
 
-                // Add the resulting scaninfo index to the list of
-                // scaninfos that came from vertex number {f.vertex}
-                scaninfos_from_vertex_nr[{
+                // Add the resulting vertex_type index to the list of
+                // vertex_types that came from vertex number {f.vertex}
+                vertex_types_from_vertex_nr[{
                     f.vertex,
                     current_smoothing_group
                 }].push_back(ins.first->second);
@@ -399,8 +402,8 @@ public:
         // Copy the deduplicated vertices (keys)
         // into the vertex array indices specified
         // in the associated values
-        result.vertices.resize(scaninfo_lookup.size());
-        for (auto &item : scaninfo_lookup)
+        result.vertices.resize(vertex_type_lookup.size());
+        for (auto &item : vertex_type_lookup)
             result.vertices[item.second] = item.first;
 
         face_nr = 0;
@@ -444,9 +447,9 @@ public:
         std::vector<glm::vec3> triangle_normals;
 
         for (size_t i = 0; i + 3 <= result.elements.size(); i += 3) {
-            scaninfo &v0 = result.vertices[result.elements[i]];
-            scaninfo &v1 = result.vertices[result.elements[i+1]];
-            scaninfo &v2 = result.vertices[result.elements[i+2]];
+            vertex_type &v0 = result.vertices[result.elements[i]];
+            vertex_type &v1 = result.vertices[result.elements[i+1]];
+            vertex_type &v2 = result.vertices[result.elements[i+2]];
             glm::vec3 v10 = glm::normalize(v1.p - v0.p);
             glm::vec3 v20 = glm::normalize(v2.p - v0.p);
             glm::vec3 normal = glm::cross(v10, v20);
@@ -455,7 +458,7 @@ public:
 
         // Average together the vertices that got put into the same
         // vector(s) by smoothing group
-        for (auto &item : scaninfos_from_vertex_nr) {
+        for (auto &item : vertex_types_from_vertex_nr) {
             auto &indices = item.second;
             if (indices.size() < 2)
                 continue;
@@ -497,7 +500,7 @@ private:
         uint32_t tc{-1U};
     };
 
-    scaninfo from_face(face_ent const &f, uint32_t smoothing_group) const
+    vertex_type from_face(face_ent const &f, uint32_t smoothing_group) const
     {
         return {
             f.tc != -1U ? texcoords[f.tc] : glm::vec2{},
@@ -545,20 +548,22 @@ private:
 };
 
 class bsp_tree {
+    using vertex_type = scaninfo;
+
     struct tri {
         tri() = default;
 
-        tri(scaninfo const& v0,
-                scaninfo const& v1,
-                scaninfo const& v2)
+        tri(vertex_type const& v0,
+                vertex_type const& v1,
+                vertex_type const& v2)
             : plane{plane_from_tri(v0, v1, v2)}
             , v{v0, v1, v2}
         {
         }
 
-        tri(scaninfo const& v0,
-                scaninfo const& v1,
-                scaninfo const& v2,
+        tri(vertex_type const& v0,
+                vertex_type const& v1,
+                vertex_type const& v2,
                 glm::vec4 const& plane)
             : plane{plane}
             , v{v0, v1, v2}
@@ -568,16 +573,16 @@ class bsp_tree {
         // It can do it hypothetically if you give nullptr for the vectors
         std::pair<size_t, size_t> clip_against(
             tri const& partition,
-            std::vector<scaninfo> *front_out = nullptr,
-            std::vector<scaninfo> *back_out = nullptr)
+            std::vector<vertex_type> *front_out = nullptr,
+            std::vector<vertex_type> *back_out = nullptr)
         {
             std::pair<size_t, size_t> counts{ 0, 0 };
 
             for (size_t n = 1, i = 0; i < v.size(); ++i, ++n) {
                 // Wrap around n when it gets out of range
                 n &= -(n < v.size());
-                scaninfo *curr = &v[i];
-                scaninfo *next = &v[n];
+                vertex_type *curr = &v[i];
+                vertex_type *next = &v[n];
                 float cd = glm::dot(glm::vec3(curr->p),
                     glm::vec3(plane)) + plane.w;
                 float nd = glm::dot(glm::vec3(next->p),
@@ -598,9 +603,9 @@ class bsp_tree {
 
                 if (next_back != curr_back) {
                     // Project point onto plane
-                    scaninfo diff = *next - *curr;
+                    vertex_type diff = *next - *curr;
                     float full_dist = nd - cd;
-                    scaninfo intersection =
+                    vertex_type intersection =
                         diff * (cd / full_dist) + *curr;
                     if (back_out)
                         back_out->push_back(intersection);
@@ -615,7 +620,7 @@ class bsp_tree {
         }
 
         glm::vec4 plane;
-        std::array<scaninfo, 3> v;
+        std::array<vertex_type, 3> v;
     };
 
     struct node {
@@ -726,11 +731,11 @@ public:
             if (i == selected)
                 continue;
 
-            std::vector<scaninfo> front_verts;
-            std::vector<scaninfo> back_verts;
+            std::vector<vertex_type> front_verts;
+            std::vector<vertex_type> back_verts;
 
             using side_pair = std::pair<
-                std::vector<scaninfo> *,
+                std::vector<vertex_type> *,
                 std::vector<tri> node::*>;
             side_pair sides[2] = {
                 { &front_verts, &node::front },
@@ -766,8 +771,8 @@ public:
         compile(tris);
     }
 
-    static glm::vec4 plane_from_tri(scaninfo const &v0,
-        scaninfo const &v1, scaninfo const &v2)
+    static glm::vec4 plane_from_tri(vertex_type const &v0,
+        vertex_type const &v1, vertex_type const &v2)
     {
         glm::vec3 v10 = glm::vec3(v1.p) - glm::vec3(v0.p);
         glm::vec3 v20 = glm::vec3(v2.p) - glm::vec3(v0.p);
@@ -795,13 +800,11 @@ class simd_raytracer {
 
     // The code probably needs to be 32 bit components
     // it needs reviewing to make sure this assert
-    // isn't needed
+    // isn't needed, half expect it might almost 
+    // work though
     static_assert(std::is_same_v<C, float>,
         "Requires single precision float"
         " vector components in F");
-
-    // vec_sz would be 8 for 256-bit vector of float
-    static constexpr size_t vec_sz = vecinfo_t<F>::sz;
 
     // Uncomment this if we ever want signed
     //using I = typename vecinfo_t<F>::as_int;
@@ -811,7 +814,16 @@ class simd_raytracer {
 
     // one-bit-per-component bitmask
     using M = typename vecinfo_t<F>::bitmask;
+
+    using D = vecinfo_t<F>;
 public:
+    using vertex_type = scaninfo;
+    using index_type = uint32_t;
+    using component_type = C;
+
+    // vec_sz would be 8 for 256-bit vector of float
+    static constexpr size_t vec_sz = vecinfo_t<F>::sz;
+
     // Holds the volatile information about ray bundles
     // To avoid the immutable data being on dirtied lines
     // (The volatile part of the search)
@@ -823,6 +835,11 @@ public:
         // nearest intersecting triangle
         // -1U means "not found"
         U best_element;
+    };
+
+    static constexpr ray_best_match cleared_best_match{
+        vec_broadcast<F>(FLT_MAX),
+        vec_broadcast<U>(-1U)
     };
 
     // Holds a bundle of rays (the immutable part of the search)
@@ -841,6 +858,10 @@ public:
         F col_r;
         F col_g;
         F col_b;
+
+        // Remember which pixel owns this ray
+        F screen_x;
+        F screen_y;
     };
 
     // Holds a bundle of ray-triangle
@@ -861,58 +882,56 @@ public:
         F nz;
     };
 
-    // An implementation of the Möller–Trumbore intersection algorithm
+    // An implementation of the Möller–Trumbore
+    // intersection algorithm
     struct collision_detail {
         template<bool check>
         always_inline_method
-        void collide(
+        bool collide(
             ray_bundle const &rays,
-            scaninfo const& v1_,
-            scaninfo const& v2_,
-            scaninfo const& v3_)
+            vertex_type const& v1,
+            vertex_type const& v2,
+            vertex_type const& v3)
         {
-            v1 = &v1_;
-            v2 = &v2_;
-            v3 = &v3_;
-
             // Calculate two edges from common vertex
 
-            glm::vec3 e1 = glm::vec3(v2->p) -
-                glm::vec3(v1->p);
+            glm::vec3 e1 = glm::vec3(v2.p) -
+                glm::vec3(v1.p);
 
-            glm::vec3 e2 = glm::vec3(v3->p) -
-                glm::vec3(v1->p);
+            glm::vec3 e2 = glm::vec3(v3.p) -
+                glm::vec3(v1.p);
 
             // p = ray_dir cross e2
             F p_x, p_y, p_z;
             cross(p_x, p_y, p_z,
                 rays.dir_x, rays.dir_y, rays.dir_z,
-                vecinfo_t<F>::vec_broadcast(e2.x),
-                vecinfo_t<F>::vec_broadcast(e2.y),
-                vecinfo_t<F>::vec_broadcast(e2.z));
+                vec_broadcast<F>(e2.x),
+                vec_broadcast<F>(e2.y),
+                vec_broadcast<F>(e2.z));
 
             // det = p dot e1
             F determinants = dot(
                 p_x, p_y, p_z,
-                vecinfo_t<F>::vec_broadcast(e1.x),
-                vecinfo_t<F>::vec_broadcast(e1.y),
-                vecinfo_t<F>::vec_broadcast(e1.z));
+                vec_broadcast<F>(e1.x),
+                vec_broadcast<F>(e1.y),
+                vec_broadcast<F>(e1.z));
 
-            C epsilon = FLT_EPSILON;
+            C epsilon = std::numeric_limits<C>::epsilon();
 
             if constexpr (check) {
                 // See which lanes (rays) are ok
                 // "not ok" means the ray and
                 // plane apparently don't intersect
-                lanemask = determinants > FLT_EPSILON;
+                lanemask = determinants >
+                    std::numeric_limits<C>::epsilon();
             }
 
             F inv_det = 1.0f / determinants;
 
             // T = v1 - ray_origin
-            T_x = rays.ori_x - v1->p.x;
-            T_y = rays.ori_y - v1->p.y;
-            T_z = rays.ori_z - v1->p.z;
+            T_x = rays.ori_x - v1.p.x;
+            T_y = rays.ori_y - v1.p.y;
+            T_z = rays.ori_z - v1.p.z;
 
             // u = (T dot p) / determinant
             u = dot(T_x, T_y, T_z,
@@ -924,16 +943,16 @@ public:
                 lanemask &= u <= 1.0f;
 
                 if (vec_movemask(lanemask) == 0)
-                    return;
+                    return false;
             }
 
             // Q = T cross e1
             F Q_x, Q_y, Q_z;
             cross(Q_x, Q_y, Q_z,
                 T_x, T_y, T_z,
-                vecinfo_t<F>::vec_broadcast(e1.x),
-                vecinfo_t<F>::vec_broadcast(e1.y),
-                vecinfo_t<F>::vec_broadcast(e1.z));
+                vec_broadcast<F>(e1.x),
+                vec_broadcast<F>(e1.y),
+                vec_broadcast<F>(e1.z));
 
             // v = (ray_dir dot Q) / determinants
             v = dot(rays.dir_x, rays.dir_y, rays.dir_z,
@@ -945,24 +964,29 @@ public:
                 lanemask &= v <= 1.0f;
 
                 if (vec_movemask(lanemask) == 0)
-                    return;
+                    return false;
             }
 
             // T = (e1 dot Q) / determinants
             T = dot(
-                vecinfo_t<F>::vec_broadcast(e2.x),
-                vecinfo_t<F>::vec_broadcast(e2.y),
-                vecinfo_t<F>::vec_broadcast(e2.z),
+                vec_broadcast<F>(e2.x),
+                vec_broadcast<F>(e2.y),
+                vec_broadcast<F>(e2.z),
                 Q_x, Q_y, Q_z) * inv_det;
 
             if constexpr (check) {
                 // Okay if in front of origin
                 lanemask &= T > epsilon;
+
+                if (vec_movemask(lanemask) == 0)
+                    return false;
             }
+
+            return true;
         }
 
         always_inline_method
-        void update_best(int element_nr, ray_best_match &matches)
+        void update_best(uint32_t element_nr, ray_best_match &matches)
         {
             // Squared distance from the
             // ray origin to the triangle
@@ -981,12 +1005,15 @@ public:
 
             // Write out the closer element numbers
             matches.best_element = vec_blend(matches.best_element,
-                vecinfo_t<U>::vec_broadcast(element_nr), lanemask);
+                vec_broadcast<U>(element_nr), lanemask);
         }
 
         // This expects that you have set up lanemask
         always_inline_method
         void finish(ray_bundle const& rays,
+            vertex_type const& v1,
+            vertex_type const& v2,
+            vertex_type const& v3,
             collision_bundle &collisions) const
         {
             F px = rays.ori_x + rays.dir_x * T_x;
@@ -995,12 +1022,12 @@ public:
 
             F w = 1.0f - u - v;
 
-            F tu = u * v1->t.x + v * v2->t.x + w * v3->t.x;
-            F tv = u * v1->t.y + v * v2->t.y + w * v3->t.y;
+            F tu = u * v1.t.x + v * v2.t.x + w * v3.t.x;
+            F tv = u * v1.t.y + v * v2.t.y + w * v3.t.y;
 
-            F nx = u * v1->n.x + v * v2->n.x + w * v3->n.x;
-            F ny = u * v1->n.y + v * v2->n.y + w * v3->n.y;
-            F nz = u * v1->n.z + v * v2->n.z + w * v3->n.z;
+            F nx = u * v1.n.x + v * v2.n.x + w * v3.n.x;
+            F ny = u * v1.n.y + v * v2.n.y + w * v3.n.y;
+            F nz = u * v1.n.z + v * v2.n.z + w * v3.n.z;
 
             collisions.px = vec_blend(collisions.px, px, lanemask);
             collisions.py = vec_blend(collisions.py, py, lanemask);
@@ -1014,10 +1041,6 @@ public:
             collisions.nz = vec_blend(collisions.nz, nz, lanemask);
         }
 
-        scaninfo const* v1;
-        scaninfo const* v2;
-        scaninfo const* v3;
-
         U lanemask;
 
         F T_x;
@@ -1027,6 +1050,10 @@ public:
         F T;
         F u;
         F v;
+
+        vertex_type const* v1;
+        vertex_type const* v2;
+        vertex_type const* v3;
     };
 
     // AABB slab node
@@ -1039,6 +1066,14 @@ public:
         F ex;   // right
         F ey;   // top
         F ez;   // near
+
+        std::unique_ptr<node> children[vec_sz];
+        std::vector<index_type> elements[vec_sz];
+
+        void partition()
+        {
+
+        }
 
         // Returns a bitmask for each
         uint32_t rays_intersect_slab(
@@ -1110,30 +1145,31 @@ public:
 
     // Updates the rays with the closer intersection,
     // when tested against a closer triangle.
+    __attribute__((__noinline__))
     void apply_closer_intersection(
         ray_bundle const &rays,
         ray_best_match &matches,
-        scaninfo const *verts,
+        vertex_type const *verts,
         uint32_t const *indices,
         uint32_t element_nr) const
     {
         // Fetch triangle vertices
-        scaninfo const& v1 = verts[indices[element_nr + 0]];
-        scaninfo const& v2 = verts[indices[element_nr + 1]];
-        scaninfo const& v3 = verts[indices[element_nr + 2]];
+        vertex_type const& v1 = verts[indices[element_nr + 0]];
+        vertex_type const& v2 = verts[indices[element_nr + 1]];
+        vertex_type const& v3 = verts[indices[element_nr + 2]];
 
         collision_detail collision;
         // The lanemask does not need to
         // be set when check=true
-        collision.template collide<true>(rays, v1, v2, v3);
-        collision.update_best(element_nr, matches);
+        if (collision.template collide<true>(rays, v1, v2, v3))
+            collision.update_best(element_nr, matches);
     }
 
     void actual_intersection(
         ray_bundle const& rays,
         ray_best_match const& matches,
         collision_bundle& collisions,
-        scaninfo const *verts,
+        vertex_type const *verts,
         uint32_t const *indices)
     {
         // Get a bitmask of lanes that found a best element
@@ -1146,7 +1182,7 @@ public:
             int first_lane = ffs((uint32_t)found_any);
 
             // Read the value of that component
-            int element_nr = matches.best_element[first_lane];
+            uint32_t element_nr = matches.best_element[first_lane];
 
             // Make a vector mask of lanes that are the same element
             collision.lanemask = matches.best_element == element_nr;
@@ -1157,26 +1193,232 @@ public:
             // Clear the bit for each lane that is this element
             found_any &= ~same_element_bitmask;
 
-            scaninfo const& v1 = verts[indices[element_nr + 0]];
-            scaninfo const& v2 = verts[indices[element_nr + 1]];
-            scaninfo const& v3 = verts[indices[element_nr + 2]];
+            vertex_type const& v1 = verts[indices[element_nr + 0]];
+            vertex_type const& v2 = verts[indices[element_nr + 1]];
+            vertex_type const& v3 = verts[indices[element_nr + 2]];
 
             collision.template collide<false>(rays, v1, v2, v3);
-            collision.finish(rays, collisions);
+            collision.finish(rays, v1, v2, v3, collisions);
         }
     }
+
+    using vertex_lookup_map =
+        std::unordered_map<vertex_type, index_type>;
+
+    std::vector<vertex_type> vertices;
+    vertex_lookup_map vertex_lookup;
+    std::vector<index_type> elements;
+
+    std::unique_ptr<node> root;
+
+    void add_triangles_indexed(
+        glm::mat4 const& modelview_matrix,
+        size_t material_nr,
+        vertex_type const *user_vertices,
+        index_type const *user_elements,
+        index_type count)
+    {
+        constexpr size_t verts_per_tri = 3;
+        for (size_t i = 0; i + verts_per_tri <= count; ) {
+            for (size_t o = 0; o < verts_per_tri; ++o, ++i) {
+                index_type vertex_index = user_elements[i];
+                vertex_type const &vertex = user_vertices[vertex_index];
+                std::pair<vertex_lookup_map::iterator, bool> ins =
+                    vertex_lookup.emplace(
+                        modelview_matrix * vertex,
+                        index_type(vertices.size()));
+                if (ins.second)
+                    vertices.emplace_back(ins.first->first);
+
+                // Use deduped index
+                elements.emplace_back(ins.first->second);
+            }
+
+            // Material number follows each triangle
+            elements.emplace_back(material_nr);
+        }
+    }
+
+    void compile()
+    {
+        root = std::make_unique<node>();
+
+        glm::vec3 st{std::numeric_limits<float>::max()};
+        glm::vec3 en{-std::numeric_limits<float>::max()};
+        for (size_t i = 0; i + 3 <= elements.size(); i += 3) {
+            vertex_type v0 = vertices[elements[i]];
+            vertex_type v1 = vertices[elements[i+1]];
+            vertex_type v2 = vertices[elements[i+2]];
+
+            st.x = sane_min(st.x, v0.p.x);
+            st.y = sane_min(st.y, v0.p.y);
+            st.z = sane_min(st.z, v0.p.z);
+            st.x = sane_min(st.x, v1.p.x);
+            st.y = sane_min(st.y, v1.p.y);
+            st.z = sane_min(st.z, v1.p.z);
+            st.x = sane_min(st.x, v2.p.x);
+            st.y = sane_min(st.y, v2.p.y);
+            st.z = sane_min(st.z, v2.p.z);
+
+            en.x = sane_max(en.x, v0.p.x);
+            en.y = sane_max(en.y, v0.p.y);
+            en.z = sane_max(en.z, v0.p.z);
+            en.x = sane_max(en.x, v1.p.x);
+            en.y = sane_max(en.y, v1.p.y);
+            en.z = sane_max(en.z, v1.p.z);
+            en.x = sane_max(en.x, v2.p.x);
+            en.y = sane_max(en.y, v2.p.y);
+            en.z = sane_max(en.z, v2.p.z);
+        }
+
+        root->sx[0] = st.x;
+        root->sy[0] = st.y;
+        root->sz[0] = st.z;
+        root->ex[0] = en.x;
+        root->ey[0] = en.y;
+        root->ez[0] = en.z;
+        root->elements[0].push_back(0);
+    }
+
+    __attribute__((__noinline__))
+    void create_rays(render_target const& target,
+        glm::mat4 const& camera_mtx)
+    {
+        glm::vec3 campos = glm::vec3(camera_mtx[3]);
+
+        glm::vec3 pts[] = {
+            // top left
+            camera_mtx * glm::vec4{ -1.0f, 1.0f, -1.0f, 1.0f },
+            // top right
+            camera_mtx * glm::vec4{  1.0f, 1.0f, -1.0f, 1.0f },
+            // bottom left
+            camera_mtx * glm::vec4{ -1.0f,-1.0f, -1.0f, 1.0f }
+        };
+
+        glm::vec3 xedge = pts[1] - pts[0];
+        glm::vec3 yedge = pts[2] - pts[0];
+
+        // Figure out how many ray bundles to create
+        int bundles_across = (target.width +
+            (vec_sz - 1)) / vec_sz;
+
+        int bundles = bundles_across * target.height;
+
+        if (ray_count != (size_t)bundles) {
+            ray_count = bundles;
+            huge_free(aligned_memory, 
+                aligned_memory_size);
+            size_t camera_ray_sz = bundles *
+                sizeof(*camera_rays);
+            size_t best_match_sz = bundles *
+                sizeof(*best_matches);
+            size_t collisions_sz = bundles *
+                sizeof(*collisions);
+            aligned_memory_size = camera_ray_sz +
+                best_match_sz + collisions_sz;
+            aligned_memory = huge_alloc(
+                aligned_memory_size,
+                &aligned_memory_size);
+            std::cerr << "Raytracer allocated " <<
+                (aligned_memory_size >> 20) << 
+                " MB of huge pages\n";
+            camera_rays = reinterpret_cast<ray_bundle *>(
+                aligned_memory);
+            best_matches = reinterpret_cast<ray_best_match *>(
+                camera_rays + bundles);
+            collisions = reinterpret_cast<collision_bundle *>(
+                best_matches + bundles);
+            
+            // Check alignment here, right where it screwed it up
+            // if it ever screws it up, that is
+            assert(!(uintptr_t(camera_rays) & ~-sizeof(F)));
+            assert(!(uintptr_t(best_matches) & ~-sizeof(F)));
+            assert(!(uintptr_t(collisions) & ~-sizeof(F)));
+        }
+
+        float fw = (float)target.width;
+        float fh = (float)target.height;
+        float sw = 1.0f / (fw - 1.0f);
+        float sh = 1.0f / (fh - 1.0f);
+
+        // laneoffs is vector sized
+        // and is like {0.0f, 1.0f, 2.0f, 3.0f, etc...}
+        F ofs = D::laneoffs * sw;
+
+        size_t i = 0;
+        for (float y = 0; y < fh; ++y) {
+            for (float x = 0; x < fw; x += vec_sz, ++i) {
+                ray_bundle &bundle = camera_rays[i];
+
+                bundle.ori_x = pts[0].x +
+                    xedge.x * ((x + ofs) * sw) +
+                    yedge.x * (y * sh);
+                bundle.ori_y = pts[0].y +
+                    xedge.y * ((x + ofs) * sw) +
+                    yedge.y * (y * sh);
+                bundle.ori_z = pts[0].z +
+                    xedge.z * ((x + ofs) * sw) +
+                    yedge.z * (y * sh);
+
+                bundle.dir_x = bundle.ori_x - campos.x;
+                bundle.dir_y = bundle.ori_y - campos.y;
+                bundle.dir_z = bundle.ori_z - campos.z;
+
+                vec_normalize(bundle.dir_x, 
+                    bundle.dir_y, bundle.dir_z);
+
+                // should be all nearly 1.0f
+                // F hack = bundle.dir_x * bundle.dir_x +
+                //     bundle.dir_y * bundle.dir_y +
+                //     bundle.dir_z * bundle.dir_z;
+
+                bundle.screen_x = D::laneoffs + x;
+                bundle.screen_y = vec_broadcast<F>(y);
+            }
+        }
+    }
+
+    void trace(render_target const& target)
+    {
+        std::fill(best_matches,
+            best_matches + ray_count, 
+            cleared_best_match);
+
+        for (size_t i = 0; i < ray_count; ++i) {
+            ray_bundle const& rays = camera_rays[i];
+            uint32_t intersect_mask = root->rays_intersect_slab(rays);
+
+            if (intersect_mask) {
+                ray_best_match & best = best_matches[i];
+                collision_bundle const& coll = collisions[i];
+
+                apply_closer_intersection(rays, best,
+                    vertices.data(), elements.data(), 0);
+            }
+        }
+    }
+
+    void *aligned_memory{};
+    size_t aligned_memory_size{};
+    size_t ray_count{};
+    ray_bundle * camera_rays{};
+    ray_best_match * best_matches{};
+    collision_bundle * collisions{};
 };
 
 extern template class simd_raytracer<vecf32auto>;
-extern template void simd_raytracer<vecf32auto>::
+extern template bool simd_raytracer<vecf32auto>::
     collision_detail::collide<true>(
         ray_bundle const &rays,
-        scaninfo const& v1_,
-        scaninfo const& v2_,
-        scaninfo const& v3_);
-extern template void simd_raytracer<vecf32auto>::
+        vertex_type const& v1_,
+        vertex_type const& v2_,
+        vertex_type const& v3_);
+extern template bool simd_raytracer<vecf32auto>::
     collision_detail::collide<false>(
         ray_bundle const &rays,
-        scaninfo const& v1_,
-        scaninfo const& v2_,
-        scaninfo const& v3_);
+        vertex_type const& v1_,
+        vertex_type const& v2_,
+        vertex_type const& v3_);
+
+void setup_raytrace();
+void test_raytrace(render_target const &target);

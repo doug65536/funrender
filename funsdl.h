@@ -6,6 +6,7 @@
 #include <cmath>
 #include <vector>
 #include <memory>
+#include <unordered_map>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <SDL.h>
@@ -489,3 +490,6 @@ void push_masks(render_ctx * __restrict ctx);
 void pop_masks(render_ctx * __restrict ctx);
 
 std::array<float, 2> get_edge_stats();
+
+extern bool measure;
+extern bool raytrace;

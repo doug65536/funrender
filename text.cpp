@@ -100,7 +100,7 @@ void text_init(int size, int first_cp, int last_cp)
         if (ins.second) {
             x += glyph->w;
             deduped_codepoints.push_back(ch);
-            dump_debug_glyph(std::cerr, ch, glyph);
+            //dump_debug_glyph(std::cerr, ch, glyph);
         } else {
             // This glyph looks identical to another glyph
             // Point it at the identical-looking one

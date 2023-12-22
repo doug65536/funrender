@@ -136,8 +136,8 @@ void *huge_alloc(size_t size, size_t *ret_size)
 
 void huge_free(void *p, size_t size)
 {
-    size_t huge_page_size = get_huge_page_size();
     if (p && size) {
+        size_t huge_page_size = get_huge_page_size();
         size = (size + (huge_page_size-1)) & -huge_page_size;
         munmap(p, size);
     }

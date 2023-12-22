@@ -1,5 +1,8 @@
 #pragma once
+#include <utility>
 #include <cstdint>
+#include <climits>
+#include <limits>
 #include <type_traits>
 
 #ifdef __x86_64__
@@ -451,6 +454,14 @@ struct vec_info_of_sz<16> {
         0.0f,  1.0f,  2.0f,  3.0f,  4.0f,  5.0f,  6.0f,  7.0f,
         8.0f,  9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f
     };
+    static constexpr veci32x16 laneoffsu = {
+        0,  1,  2,  3,  4,  5,  6,  7,
+        8,  9, 10, 11, 12, 13, 14, 15
+    };
+    static constexpr vecu32x16 laneoffsi = {
+        0,  1,  2,  3,  4,  5,  6,  7,
+        8,  9, 10, 11, 12, 13, 14, 15
+    };
     always_inline constexpr vecf32x16 vec_broadcast(float n)
     {
         return vecf32x16{
@@ -507,6 +518,12 @@ struct vec_info_of_sz<8> {
     };
     static constexpr vecf32x8 laneoffs = {
         0.0f,  1.0f,  2.0f,  3.0f,  4.0f,  5.0f,  6.0f,  7.0f
+    };
+    static constexpr vecu32x8 laneoffsu = {
+        0,  1,  2,  3,  4,  5,  6,  7
+    };
+    static constexpr veci32x8 laneoffsi = {
+        0,  1,  2,  3,  4,  5,  6,  7
     };
     static constexpr vecf32x8 vec_broadcast(float n)
     {
@@ -750,6 +767,12 @@ struct vec_info_of_sz<4> {
     static constexpr vecf32x4 laneoffs = {
         0.0f,  1.0f,  2.0f,  3.0f
     };
+    static constexpr vecu32x4 laneoffsu = {
+        0,  1,  2,  3
+    };
+    static constexpr veci32x4 laneoffsi = {
+        0,  1,  2,  3
+    };
     static constexpr vecf32x4 vec_broadcast(float n)
     {
         return vecf32x4{
@@ -792,6 +815,12 @@ struct vec_info_of_sz<2> {
 
     static constexpr vecf64x2 laneoffs = {
         0.0f,  1.0f
+    };
+    static constexpr vecu64x2 laneoffsu = {
+        0,  1
+    };
+    static constexpr veci64x2 laneoffsi = {
+        0,  1
     };
 
     always_inline constexpr vecf64x2 vec_broadcast(double n)
@@ -855,73 +884,15 @@ template<>
 struct vecinfo_t<veci32x16> : public vec_info_of_sz<16> {
 };
 
-always_inline vecf32x16 vec_broadcast_16(float n) {
-    return vecf32x16{
-        n, n, n, n,
-        n, n, n, n,
-        n, n, n, n,
-        n, n, n, n
-    };
+template<typename F,
+    typename C = component_of_t<F>>
+always_inline constexpr F vec_broadcast(C&& rhs)
+{
+    return vecinfo_t<F>::vec_broadcast(
+        std::forward<C>(rhs));
 }
 
-always_inline vecu32x16 vec_broadcast_16(uint32_t n) {
-    return vecu32x16{
-        n, n, n, n,
-        n, n, n, n,
-        n, n, n, n,
-        n, n, n, n
-    };
-}
-
-always_inline veci32x16 vec_broadcast_16(int32_t n) {
-    return veci32x16{
-        n, n, n, n,
-        n, n, n, n,
-        n, n, n, n,
-        n, n, n, n
-    };
-}
-
-always_inline vecf32x8 vec_broadcast_f8(float n) {
-    return vecf32x8{
-        n, n, n, n,
-        n, n, n, n
-    };
-}
-
-always_inline vecu32x8 vec_broadcast_u8(uint32_t n) {
-    return vecu32x8{
-        n, n, n, n,
-        n, n, n, n
-    };
-}
-
-always_inline veci32x8 vec_broadcast_i8(int32_t n) {
-    return veci32x8{
-        n, n, n, n,
-        n, n, n, n
-    };
-}
-
-always_inline vecf32x4 vec_broadcast_f4(float n) {
-    return vecf32x4{
-        n, n, n, n
-    };
-}
-
-always_inline vecu32x4 vec_broadcast_u4(uint32_t n) {
-    return vecu32x4{
-        n, n, n, n
-    };
-}
-
-always_inline veci32x4 vec_broadcast_i4(int32_t n) {
-    return veci32x4{
-        n, n, n, n
-    };
-}
-
-always_inline vecu32x4 vec_blend(
+always_inline constexpr vecu32x4 vec_blend(
     vecu32x4 existing, vecu32x4 updated, vecu32x4 mask)
 {
     return (updated & mask) | (existing & ~mask);
@@ -1308,37 +1279,47 @@ struct vec_larger_type<vecu8x16> { using type = vecu16x8; };
 
 always_inline vecf32x4 abs(vecf32x4 f)
 {
-    return cast_to<vecf32x4>(cast_to<vecu32x4>(f) & INT_MAX);
+    return cast_to<vecf32x4>(cast_to<vecu32x4>(f) &
+        std::numeric_limits<uint32_t>::max());
 }
 
 always_inline vecf32x8 abs(vecf32x8 f)
 {
-    return cast_to<vecf32x8>(cast_to<vecu32x8>(f) & INT_MAX);
+    return cast_to<vecf32x8>(cast_to<vecu32x8>(f) &
+        std::numeric_limits<uint32_t>::max());
 }
 
 always_inline vecf32x16 abs(vecf32x16 f)
 {
-    return cast_to<vecf32x16>(cast_to<vecu32x16>(f) & INT_MAX);
+    return cast_to<vecf32x16>(cast_to<vecu32x16>(f) &
+        std::numeric_limits<uint32_t>::max());
 }
 
 template<typename V>
 always_inline void cross(
-    V& out_x, V& out_y, V& out_z,
-    V const& lhs_x, V const& lhs_y, V const& lhs_z,
-    V const& rhs_x, V const& rhs_y, V const& rhs_z)
+    V& __restrict out_x, 
+    V&  __restrict out_y, 
+    V&  __restrict out_z,
+    V const& __restrict lhs_x, 
+    V const& __restrict lhs_y, 
+    V const& __restrict lhs_z,
+    V const& __restrict rhs_x, 
+    V const& __restrict rhs_y, 
+    V const& __restrict rhs_z)
 {
-    V tmp_x = lhs_y * rhs_z - rhs_y * lhs_z;
-    V tmp_y = lhs_z * rhs_x - rhs_z * lhs_x;
-    V tmp_z = lhs_x * rhs_y - rhs_x * lhs_y;
-    out_x = tmp_x;
-    out_y = tmp_y;
-    out_z = tmp_z;
+    out_x = lhs_y * rhs_z - rhs_y * lhs_z;
+    out_y = lhs_z * rhs_x - rhs_z * lhs_x;
+    out_z = lhs_x * rhs_y - rhs_x * lhs_y;
 }
 
 template<typename V>
 always_inline void cross_inplace(
-    V& lhs_x, V& lhs_y, V& lhs_z,
-    V const& rhs_x, V const& rhs_y, V const& rhs_z)
+    V& __restrict lhs_x, 
+    V& __restrict lhs_y, 
+    V& __restrict lhs_z,
+    V const& __restrict rhs_x, 
+    V const& __restrict rhs_y, 
+    V const& __restrict rhs_z)
 {
     V tmp_x = lhs_y * rhs_z - rhs_y * lhs_z;
     V tmp_y = lhs_z * rhs_x - rhs_z * lhs_x;
@@ -1350,15 +1331,17 @@ always_inline void cross_inplace(
 
 // SIMD dot product
 template<typename V>
-always_inline V dot(
+always_inline constexpr V dot(
     V const& lhs_x, V const& lhs_y, V const& lhs_z,
     V const& rhs_x, V const& rhs_y, V const& rhs_z)
 {
-    return lhs_x * rhs_x + lhs_y * rhs_y + lhs_z * rhs_z;
+    return lhs_x * rhs_x + 
+        lhs_y * rhs_y + 
+        lhs_z * rhs_z;
 }
 
 // Return lowest set bit, or -1 if no bits set at all
-always_inline int ffs(uint32_t n)
+always_inline constexpr int ffs(uint32_t n)
 {
     return __builtin_ffs(n) - 1;
 }
@@ -1378,3 +1361,144 @@ using vecf32auto = vecf32x4;
 #else
 #error Unknown prerferred vector size
 #endif
+
+template<typename V,
+    //typename C = component_of_t<V>,
+    //size_t sz = comp_count_v<V>,
+    typename D = vecinfo_t<V>,
+    typename M = typename D::bitmask,
+    typename U = typename D::to_unsigned>
+always_inline V compress(V const& lhs, U& mask)
+{
+    M used = vec_movemask(mask);
+    U new_mask = {};
+
+    // Copy it so we can just move one
+    // component at a time most simply
+    V result = lhs;
+    size_t out;
+
+    for (out = 0; used; ++out) {
+        int component = ffs(used);
+        used &= ~(1U << component);
+
+        if (out != component)
+            result[out] = result[component];
+    }
+
+    mask = D::laneoffsi < out;
+    return result;
+}
+
+template<typename F>
+always_inline F mix(F const& x, F const& y, F const& a)
+{
+    return (x * (1.0f - a)) + (y * a);
+}
+
+template<typename F>
+always_inline F newton_raphson_rsqrt(F const& x, F const& y)
+{
+    return y * (1.5f - 0.5f * x * y * y);
+}
+
+template<typename F>
+always_inline F newton_raphson_sqrt(F const& x, F const& y)
+{
+    return 0.5f * (y + x / y);
+}
+
+always_inline vecf32x4 sqrt(vecf32x4 const& x)
+{
+#if defined(__SSE2__)
+    vecf32x4 y = cast_to<vecf32x4>(_mm_sqrt_ps(
+        cast_to<__m128>(x)));
+    return y;
+#else
+    return {
+        std::sqrt(x[0]),
+        std::sqrt(x[1]),
+        std::sqrt(x[2]),
+        std::sqrt(x[3])
+    };
+#endif
+}
+
+always_inline vecf32x8 sqrt(vecf32x8 const& x)
+{
+#if defined(__AVX2__)
+    vecf32x8 y = cast_to<vecf32x8>(
+        _mm256_sqrt_ps(
+            cast_to<__m256>(x)));
+    return y;
+#else
+    return vec_combine(
+        sqrt(vec_lo(x)),
+        sqrt(vec_hi(x)));
+#endif
+}
+
+always_inline vecf32x16 sqrt(vecf32x16 const& x)
+{
+#if defined(__AVX512F__)
+    vecf32x16 y = cast_to<vecf32x16>(
+        _mm512_sqrt_ps(
+            cast_to<__m512>(x)));
+    return y;
+#else
+    return vec_combine(
+        sqrt(vec_lo(x)),
+        sqrt(vec_hi(x)));
+#endif
+}
+
+always_inline constexpr vecf32x4 inv_sqrt(vecf32x4 const& x)
+{
+#if defined(__SSE2__)
+    vecf32x4 y = cast_to<vecf32x4>(_mm_rsqrt_ps(
+        cast_to<__m128>(x)));
+    y = newton_raphson_rsqrt(x, y);
+    return y;
+#else
+    return 1.0f / sqrt(x);
+#endif
+}
+
+always_inline vecf32x8 inv_sqrt(vecf32x8 const& x)
+{
+#if defined(__AVX2__)
+    vecf32x8 y = cast_to<vecf32x8>(_mm256_rsqrt_ps(
+        cast_to<__m256>(x)));
+    y = newton_raphson_rsqrt(x, y);
+    return y;
+#else
+    return vec_combine(
+        inv_sqrt(vec_lo(x)),
+        inv_sqrt(vec_hi(x)));
+#endif
+}
+
+always_inline vecf32x16 inv_sqrt(vecf32x16 const& x)
+{
+#if defined(__AVX512F__)
+    vecf32x16 y = cast_to<vecf32x16>(
+        _mm512_rsqrt28_ps(
+            cast_to<__m512>(x)));
+    // it already did a Newton-Raphson iteration...
+    return y;
+#else
+    return vec_combine(
+        inv_sqrt(vec_lo(x)),
+        inv_sqrt(vec_hi(x)));
+#endif
+}
+
+template<typename F>
+always_inline constexpr void vec_normalize(F &x, F &y, F &z)
+{
+    F sq_len = x * x + y * y + z * z;
+    F inv_len = inv_sqrt(sq_len);
+    x *= inv_len;
+    y *= inv_len;
+    z *= inv_len;
+}

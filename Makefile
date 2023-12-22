@@ -28,7 +28,7 @@ LLVM_COV ?= $(shell $(WHICH) llvm-cov)
 CPU_COUNT := $(shell $(NPROC))
 
 ifeq ($(ARCH),x86_64)
-CXXFLAGS += -DARCH_X86_64
+VECFLAGS += -DARCH_X86_64
 #VECFLAGS = -DHAVE_HUGEPAGES=1
 
 VECFLAGS += -mtune=znver2 -mavx -mavx2 -mfma -mbmi -mbmi2 \
@@ -37,7 +37,7 @@ VECFLAGS += -mtune=znver2 -mavx -mavx2 -mfma -mbmi -mbmi2 \
 #VECFLAGS = -DHAVE_VEC128=1
 VECFLAGS += -DHAVE_VEC256=1
 else ifeq ($(ARCH),aarch64)
-CXXFLAGS += -DARCH_AARCH64
+VECFLAGS += -DARCH_AARCH64
 VECFLAGS = -march=armv8-a -mcpu=cortex-a72 -DHAVE_VEC128=1
 else
 $(error Unknown architecture)
@@ -45,14 +45,16 @@ endif
 
 #	-fvar-tracking -fvar-tracking-assignments
 
-ORIG_CXXFLAGS := $(CXXFLAGS)
-CXXFLAGS := -Wall -std=c++17 -ggdb3 \
-	$(ORIG_CXXFLAGS) \
-	-Werror=return-type -Werror=reorder \
+CXXFLAGS := -Wall \
+	-std=c++17 \
+	-ggdb3 \
+	-Werror=return-type \
+	-Werror=reorder \
 	-Werror=format \
 	-pthread \
 	-fno-plt \
-	$(VECFLAGS)
+	$(VECFLAGS) \
+	$(CXXFLAGS)
 
 
 #=$(CPU_COUNT)
@@ -116,7 +118,7 @@ GLM_LIBS = $(shell $(PKG_CONFIG) --libs glm)
 CXXFLAGS += $(SDL_CFLAGS) $(GLM_CFLAGS)
 LDFLAGS += $(SDL_LIBS) $(GLM_LIBS)
 
-funrender: $(OBJS)
+$(BUILD_DIR)/funrender: $(patsubst %,$(BUILD_DIR)/%,$(OBJS))
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS)
 
 grantlargepages: $(PROGRAM)
@@ -135,3 +137,7 @@ scanview-clang:
 	CXX=clang++ CC=clang scan-build --use-c++=clang++ make -B
 
 .PHONY: all clean run grantlargepages scanview-clang line-profile
+
+#$(info BUILD_DIR=$(BUILD_DIR) and SRC_DIR=$(SRC_DIR))
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
+	$(CXX) -o $@ -c $< $(CXXFLAGS)

@@ -20,7 +20,7 @@
 #include <functional>
 #include <libpng16/png.h>
 #include <glm/glm.hpp>
-
+#include <cstdlib>
 #include "likely.h"
 #include "affinity.h"
 #include "abstract_vector.h"
@@ -395,7 +395,7 @@ void box_worker(size_t worker_nr, fill_job &job)
     float *depths = job.fp.z_buffer + pixel_index;
 
     // Set up to mask off an 8-bit red green blue or alpha
-    T constexpr bytemask = vecinfo_t<T>::vec_broadcast(0xFFU);
+    T constexpr bytemask = vec_broadcast<T>(0xFFU);
 
     // Set up the new color vectors
     T ca = (job.color >> 24) & bytemask;
@@ -461,7 +461,7 @@ void box_worker(size_t worker_nr, fill_job &job)
         T const backup = *(T*)(pixels + x);
 
         D depth_data = *(D*)(depths + x);
-        D z_vec = vecinfo_t<D>::vec_broadcast(job.z);
+        D z_vec = vec_broadcast<D>(job.z);
         mask &= z_vec < depth_data;
 
         // no writeback though, because it is transparent
@@ -555,7 +555,7 @@ void fill_mainloop(
     n -= (x & vec_mask) * invWidth;
     x &= -vec_sz;
 
-    F n_step = invWidth * vecinfo_t<F>::vec_broadcast((float)vec_sz);
+    F n_step = invWidth * vec_broadcast<F>((float)vec_sz);
 
     size_t pixel_index = job.fp.pitch * (y + job.fp.top) + x;
     uint32_t * __restrict pixel_io = job.fp.pixels + pixel_index;
@@ -641,14 +641,17 @@ void fill_mainloop(
                     F absp = abs(cp_vec);
                     F maxc = max(max(abss, abst), absp);
 
-                    T when_x_is_max = vec_blend(vecinfo_t<T>::vec_broadcast(2U),
-                        vecinfo_t<T>::vec_broadcast(0U),
+                    T when_x_is_max = vec_blend(
+                        vec_broadcast<T>(2U),
+                        vec_broadcast<T>(0U),
                         (cs_vec > 0.0f)) & (maxc == abss);
-                    T when_y_is_max = vec_blend(vecinfo_t<T>::vec_broadcast(4U),
-                        vecinfo_t<T>::vec_broadcast(5U),
+                    T when_y_is_max = vec_blend(
+                        vec_broadcast<T>(4U),
+                        vec_broadcast<T>(5U),
                         (ct_vec > 0.0f)) & (maxc == abst);
-                    T when_z_is_max = vec_blend(vecinfo_t<T>::vec_broadcast(1U),
-                        vecinfo_t<T>::vec_broadcast(3U),
+                    T when_z_is_max = vec_blend(
+                        vec_broadcast<T>(1U),
+                        vec_broadcast<T>(3U),
                         (cp_vec > 0.0f)) & (maxc == absp);
 
                     face_nrs = when_x_is_max |
@@ -711,7 +714,7 @@ void fill_mainloop(
                     tex_off += face_nrs;
 
     #if DEBUG_MIPMAPS
-                T texels = vecinfo_t<T>::vec_broadcast(mipmap_level == 0
+                T texels = vec_broadcast<T>(mipmap_level == 0
                     ? 0xFF0000FF
                     : mipmap_level == 1
                     ? 0xFF00FF00
@@ -741,8 +744,8 @@ void fill_mainloop(
                 r_vec *= texels_fr;
 
                 // Clamp
-                constexpr auto bytemax = vecinfo_t<F>::vec_broadcast(255.0f);
-                constexpr auto bytemin = vecinfo_t<F>::vec_broadcast(0.0f);
+                constexpr auto bytemax = vec_broadcast<F>(255.0f);
+                constexpr auto bytemin = vec_broadcast<F>(0.0f);
 
                 b_vec = min(b_vec, bytemax);
                 g_vec = min(g_vec, bytemax);
@@ -1443,6 +1446,8 @@ int setup(render_ctx * __restrict ctx, int width, int height);
 void cleanup(render_ctx * __restrict ctx, int width, int height);
 
 bool measure;
+bool raytrace;
+std::vector<std::string> command_line_options;
 std::vector<std::string> command_line_files;
 
 template<typename T>
@@ -1484,10 +1489,20 @@ bool should_use_vecsz(size_t sz)
 
 int main(int argc, char const *const *argv)
 {
+    int ignore_options = 0;
+
     for (int i = 1; i < argc; ++i)
     {
-        if (!strcmp(argv[i], "--measure")) {
+        bool option = !ignore_options &&
+            !memcmp(argv[i], "--", 2);
+
+        if (option && !strcmp(argv[i], "--measure")) {
             measure = true;
+            continue;
+        }
+
+        if (option && !strcmp(argv[i], "--raytrace")) {
+            raytrace = true;
             continue;
         }
 
