@@ -1,4 +1,5 @@
 funrender
+test-funrender
 *.d
 *.o
 perf.data

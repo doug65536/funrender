@@ -43,11 +43,12 @@ __attribute__((__noinline__))
 void test_raytrace(render_target const &target)
 {
     glm::mat4 mtx(1.0f);
+    raytracer.clear();
     raytracer.add_triangles_indexed(mtx, 0,
-        raytrace_vertices.data(), 
+        raytrace_vertices.data(),
         raytrace_elements.data(), 3);
     raytracer.compile();
-    mtx = glm::translate(mtx, 
+    mtx = glm::translate(mtx,
       glm::vec3(0.0f, 0.0f, 10.0f));
     raytracer.create_rays(target, mtx);
     raytracer.trace(target);

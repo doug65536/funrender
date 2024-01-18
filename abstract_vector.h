@@ -263,7 +263,9 @@ template <> struct component_of<veci64x2> { using type = int64_t; };
 template <> struct component_of<veci64x4> { using type = int64_t; };
 template <> struct component_of<veci64x8> { using type = int64_t; };
 
+template <> struct component_of<vecf64x2> { using type = double; };
 template <> struct component_of<vecf64x4> { using type = double; };
+template <> struct component_of<vecf64x8> { using type = double; };
 
 template<typename T>
 using component_of_t = typename component_of<T>::type;
@@ -289,8 +291,79 @@ template<> struct comp_count<veci32x8> { static constexpr size_t value = 8; };
 template<> struct comp_count<vecu64x4> { static constexpr size_t value = 4; };
 template<> struct comp_count<veci64x4> { static constexpr size_t value = 4; };
 
+template<> struct comp_count<vecf32x4> { static constexpr size_t value = 4; };
+template<> struct comp_count<vecf32x8> { static constexpr size_t value = 8; };
+template<> struct comp_count<vecf32x16> { static constexpr size_t value = 16; };
+
+template<> struct comp_count<vecf64x2> { static constexpr size_t value = 2; };
+template<> struct comp_count<vecf64x4> { static constexpr size_t value = 4; };
+template<> struct comp_count<vecf64x8> { static constexpr size_t value = 8; };
+
+template<> struct comp_count<vecu8x64> { static constexpr size_t value = 64; };
+template<> struct comp_count<veci8x64> { static constexpr size_t value = 64; };
+template<> struct comp_count<vecu16x32> { static constexpr size_t value = 32; };
+template<> struct comp_count<veci16x32> { static constexpr size_t value = 32; };
+template<> struct comp_count<vecu32x16> { static constexpr size_t value = 16; };
+template<> struct comp_count<veci32x16> { static constexpr size_t value = 16; };
+template<> struct comp_count<vecu64x8> { static constexpr size_t value = 8; };
+template<> struct comp_count<veci64x8> { static constexpr size_t value = 8; };
+
 template<typename T>
 constexpr auto comp_count_v = comp_count<T>::value;
+
+template<size_t N> struct int_by_size;
+
+template<> struct int_by_size<sizeof(int8_t)>
+    { using type = int8_t; };
+
+template<> struct int_by_size<sizeof(int16_t)>
+    { using type = int16_t; };
+
+template<> struct int_by_size<sizeof(int32_t)>
+    { using type = int32_t; };
+
+template<> struct int_by_size<sizeof(int64_t)>
+    { using type = int64_t; };
+
+template<> struct int_by_size<sizeof(__int128_t)>
+    { using type = __int128_t; };
+
+template<size_t N> struct uint_by_size;
+template<> struct uint_by_size<sizeof(uint8_t)>
+    { using type = uint8_t; };
+
+template<> struct uint_by_size<sizeof(uint16_t)>
+    { using type = uint16_t; };
+
+template<> struct uint_by_size<sizeof(uint32_t)>
+    { using type = uint32_t; };
+
+template<> struct uint_by_size<sizeof(uint64_t)>
+    { using type = uint64_t; };
+
+template<> struct uint_by_size<sizeof(__uint128_t)>
+    { using type = __uint128_t; };
+
+template<size_t N> struct float_by_size;
+// template<> struct float_by_size<sizeof(__fp16)>
+//     { using type = __fp16; };
+template<> struct float_by_size<sizeof(float)>
+    { using type = float; };
+template<> struct float_by_size<sizeof(double)>
+    { using type = double; };
+// template<> struct float_by_size<sizeof(long double)>
+//     { using type = long double; };
+// template<> struct float_by_size<sizeof(__float128)>
+//     { using type = __float128; };
+
+template<size_t N>
+using float_by_size_t = typename float_by_size<N>::type;
+
+template<size_t N>
+using int_by_size_t = typename int_by_size<N>::type;
+
+template<size_t N>
+using uint_by_size_t = typename uint_by_size<N>::type;
 
 #ifndef always_inline
 #define always_inline __attribute__((__always_inline__)) static inline
@@ -300,6 +373,14 @@ constexpr auto comp_count_v = comp_count<T>::value;
 always_inline vecu32x8 vec_lo(vecu32x16 whole)
 {
     return vecu32x8{
+        whole[0], whole[1], whole[2], whole[3],
+        whole[4], whole[5], whole[6], whole[7]
+    };
+}
+
+always_inline veci32x8 vec_lo(veci32x16 whole)
+{
+    return veci32x8{
         whole[0], whole[1], whole[2], whole[3],
         whole[4], whole[5], whole[6], whole[7]
     };
@@ -382,6 +463,14 @@ always_inline vecu32x8 vec_hi(vecu32x16 whole)
     };
 }
 
+always_inline veci32x8 vec_hi(veci32x16 whole)
+{
+    return veci32x8{
+        whole[ 8], whole[ 9], whole[10], whole[11],
+        whole[12], whole[13], whole[14], whole[15]
+    };
+}
+
 always_inline vecf32x8 vec_hi(vecf32x16 whole)
 {
     return vecf32x8{
@@ -454,11 +543,11 @@ struct vec_info_of_sz<16> {
         0.0f,  1.0f,  2.0f,  3.0f,  4.0f,  5.0f,  6.0f,  7.0f,
         8.0f,  9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f
     };
-    static constexpr veci32x16 laneoffsu = {
+    static constexpr veci32x16 laneoffsi = {
         0,  1,  2,  3,  4,  5,  6,  7,
         8,  9, 10, 11, 12, 13, 14, 15
     };
-    static constexpr vecu32x16 laneoffsi = {
+    static constexpr vecu32x16 laneoffsu = {
         0,  1,  2,  3,  4,  5,  6,  7,
         8,  9, 10, 11, 12, 13, 14, 15
     };
@@ -555,9 +644,123 @@ always_inline To convert_to(From const& orig)
 }
 
 template<typename As, typename From>
-always_inline As cast_to(From const& rhs)
+always_inline constexpr As cast_to(From const& rhs)
 {
     return __builtin_bit_cast(As, rhs);
+}
+
+always_inline constexpr vecu32x4 vec_blend(
+    vecu32x4 existing, vecu32x4 updated, veci32x4 mask)
+{
+    return (updated & mask) | (existing & ~mask);
+}
+
+always_inline vecu32x16 vec_blend(
+    vecu32x16 existing, vecu32x16 updated, veci32x16 mask)
+{
+#if defined(__AVX512F__)
+    return cast_to<vecu32x16>(
+        _mm512_blendv_epi8(
+        cast_to<__m512i>(existing),
+        cast_to<__m512i>(updated),
+        cast_to<__m512i>(mask)));
+#elif defined(__AVX2__)
+    vecu32x8 lo = cast_to<vecu32x8>(
+        _mm256_blendv_epi8(
+        cast_to<__m256i>(vec_lo(existing)),
+        cast_to<__m256i>(vec_lo(updated)),
+        cast_to<__m256i>(vec_lo(mask))));
+    vecu32x8 hi = cast_to<vecu32x8>(
+        _mm256_blendv_epi8(
+        cast_to<__m256i>(vec_hi(existing)),
+        cast_to<__m256i>(vec_hi(updated)),
+        cast_to<__m256i>(vec_hi(mask))));
+
+    return vec_combine(lo, hi);
+#else
+    return (existing & ~mask) | (updated & mask);
+#endif
+}
+
+always_inline vecu32x8 vec_blend(
+    vecu32x8 existing, vecu32x8 updated, veci32x8 mask)
+{
+#if defined(__AVX2__)
+    return cast_to<vecu32x8>(
+        _mm256_blendv_epi8(
+        cast_to<__m256i>(existing),
+        cast_to<__m256i>(updated),
+        cast_to<__m256i>(mask)));
+#else
+    return (existing & ~mask) | (updated & mask);
+#endif
+}
+
+always_inline vecf32x8 vec_blend(
+    vecf32x8 existing, vecf32x8 updated, veci32x8 mask)
+{
+#if defined(__AVX2__)
+    return cast_to<vecf32x8>(
+        _mm256_blendv_ps(
+        cast_to<__m256>(existing),
+        cast_to<__m256>(updated),
+        cast_to<__m256>(mask)));
+#else
+    return cast_to<vecf32x8>(
+        (cast_to<vecu32x8>(existing) & ~mask) |
+        (cast_to<vecu32x8>(updated) & mask));
+#endif
+}
+
+always_inline vecf32x16 vec_blend(
+    vecf32x16 existing, vecf32x16 updated, veci32x16 mask)
+{
+#if defined(__AVX2__)
+    vecf32x8 lo = cast_to<vecf32x8>(
+        _mm256_blendv_ps(
+        cast_to<__m256>(vec_lo(existing)),
+        cast_to<__m256>(vec_lo(updated)),
+        cast_to<__m256>(vec_lo(mask))));
+    vecf32x8 hi = cast_to<vecf32x8>(
+        _mm256_blendv_ps(
+        cast_to<__m256>(vec_hi(existing)),
+        cast_to<__m256>(vec_hi(updated)),
+        cast_to<__m256>(vec_hi(mask))));
+    return vec_combine(lo, hi);
+#else
+    return cast_to<vecf32x16>(
+        (cast_to<vecu32x16>(existing) & ~mask) |
+        (cast_to<vecu32x16>(updated) & mask));
+#endif
+}
+
+always_inline vecf32x4 vec_blend(
+    vecf32x4 existing, vecf32x4 updated, veci32x4 mask)
+{
+#if defined(__SSE41__)
+    return cast_to<vecf32x4>(
+        _mm_blendv_ps(
+        cast_to<__m128>(existing),
+        cast_to<__m128>(updated),
+        cast_to<__m128>(mask)));
+#else
+    return cast_to<vecf32x4>(
+        (cast_to<vecu32x4>(existing) & ~mask) |
+        (cast_to<vecu32x4>(updated) & mask));
+#endif
+}
+
+template<typename V, typename M,
+    typename VC = component_of_t<V>,
+    typename MC = component_of_t<M>,
+    size_t VN = comp_count_v<V>,
+    size_t MN = comp_count_v<M>,
+    typename = typename std::enable_if_t<VN == MN>>
+always_inline V vec_blend(V const& existing,
+    V const& updated, M const& mask)
+{
+    return vec_blend(existing, updated,
+        cast_to<vec_t<int, MN>>(mask));
 }
 
 always_inline vecf32x4 max(vecf32x4 const& a, vecf32x4 const& b)
@@ -583,7 +786,7 @@ always_inline vecf32x4 max(vecf32x4 const& a, vecf32x4 const& b)
 
 always_inline vecu32x8 min(vecu32x8 const &a, vecu32x8 const& b)
 {
-#if defined(__SSE2__)
+#if defined(__SSE41__)
     vecu32x4 lo = cast_to<vecu32x4>(
         _mm_min_epu32(
             cast_to<__m128i>(vec_lo(a)),
@@ -593,6 +796,16 @@ always_inline vecu32x8 min(vecu32x8 const &a, vecu32x8 const& b)
             cast_to<__m128i>(vec_hi(a)),
             cast_to<__m128i>(vec_hi(b))));
     return vec_combine(lo, hi);
+#elif defined(__SSE2__)
+    vecu32x4 alo = vec_lo(a);
+    vecu32x4 blo = vec_lo(b);
+    vecu32x4 ahi = vec_hi(a);
+    vecu32x4 bhi = vec_hi(b);
+    veci32x4 lma = alo <= blo;
+    veci32x4 hma = ahi <= bhi;
+    vecu32x4 rlo = vec_blend(blo, alo, lma);
+    vecu32x4 rhi = vec_blend(bhi, ahi, hma);
+    return vec_combine(rlo, rhi);
 #else
     return cast_to<vecu32x8>(
         _mm256_min_epu32(
@@ -892,114 +1105,13 @@ always_inline constexpr F vec_broadcast(C&& rhs)
         std::forward<C>(rhs));
 }
 
-always_inline constexpr vecu32x4 vec_blend(
-    vecu32x4 existing, vecu32x4 updated, vecu32x4 mask)
-{
-    return (updated & mask) | (existing & ~mask);
-}
-
-always_inline vecu32x16 vec_blend(
-    vecu32x16 existing, vecu32x16 updated, vecu32x16 mask)
-{
-#if defined(__AVX512F__)
-    return cast_to<vecu32x16>(
-        _mm512_blendv_epi8(
-        cast_to<__m512i>(existing),
-        cast_to<__m512i>(updated),
-        cast_to<__m512i>(mask)));
-#elif defined(__AVX2__)
-    vecu32x8 lo = cast_to<vecu32x8>(
-        _mm256_blendv_epi8(
-        cast_to<__m256i>(vec_lo(existing)),
-        cast_to<__m256i>(vec_lo(updated)),
-        cast_to<__m256i>(vec_lo(mask))));
-    vecu32x8 hi = cast_to<vecu32x8>(
-        _mm256_blendv_epi8(
-        cast_to<__m256i>(vec_hi(existing)),
-        cast_to<__m256i>(vec_hi(updated)),
-        cast_to<__m256i>(vec_hi(mask))));
-
-    return vec_combine(lo, hi);
-#else
-    return (existing & ~mask) | (updated & mask);
-#endif
-}
-
-always_inline vecu32x8 vec_blend(
-    vecu32x8 existing, vecu32x8 updated, vecu32x8 mask)
-{
-#if defined(__AVX2__)
-    return cast_to<vecu32x8>(
-        _mm256_blendv_epi8(
-        cast_to<__m256i>(existing),
-        cast_to<__m256i>(updated),
-        cast_to<__m256i>(mask)));
-#else
-    return (existing & ~mask) | (updated & mask);
-#endif
-}
-
-always_inline vecf32x8 vec_blend(
-    vecf32x8 existing, vecf32x8 updated, vecu32x8 mask)
-{
-#if defined(__AVX2__)
-    return cast_to<vecf32x8>(
-        _mm256_blendv_ps(
-        cast_to<__m256>(existing),
-        cast_to<__m256>(updated),
-        cast_to<__m256>(mask)));
-#else
-    return cast_to<vecf32x8>(
-        (cast_to<vecu32x8>(existing) & ~mask) |
-        (cast_to<vecu32x8>(updated) & mask));
-#endif
-}
-
-always_inline vecf32x16 vec_blend(
-    vecf32x16 existing, vecf32x16 updated, vecu32x16 mask)
-{
-#if defined(__AVX2__)
-    vecf32x8 lo = cast_to<vecf32x8>(
-        _mm256_blendv_ps(
-        cast_to<__m256>(vec_lo(existing)),
-        cast_to<__m256>(vec_lo(updated)),
-        cast_to<__m256>(vec_lo(mask))));
-    vecf32x8 hi = cast_to<vecf32x8>(
-        _mm256_blendv_ps(
-        cast_to<__m256>(vec_hi(existing)),
-        cast_to<__m256>(vec_hi(updated)),
-        cast_to<__m256>(vec_hi(mask))));
-    return vec_combine(lo, hi);
-#else
-    return cast_to<vecf32x16>(
-        (cast_to<vecu32x16>(existing) & ~mask) |
-        (cast_to<vecu32x16>(updated) & mask));
-#endif
-}
-
-always_inline vecf32x4 vec_blend(
-    vecf32x4 existing, vecf32x4 updated, vecu32x4 mask)
-{
-#if defined(__AVX2__)
-    return cast_to<vecf32x4>(
-        _mm_blendv_ps(
-        cast_to<__m128>(existing),
-        cast_to<__m128>(updated),
-        cast_to<__m128>(mask)));
-#else
-    return cast_to<vecf32x4>(
-        (cast_to<vecu32x4>(existing) & ~mask) |
-        (cast_to<vecu32x4>(updated) & mask));
-#endif
-}
-
 // It sucks, on AMD anyway.
 // A bunch of scalar loads and inserts beat it, lol.
 #define GATHER_IS_GOOD 1
 
 // 128-bit gather
 always_inline vecu32x4 vec_gather(uint32_t const *buffer,
-    vecu32x4 indices, vecu32x4 background, vecu32x4 mask)
+    vecu32x4 indices, vecu32x4 background, veci32x4 mask)
 {
 #if GATHER_IS_GOOD && defined(__AVX2__)
     vecu32x4 result = cast_to<vecu32x4>(
@@ -1071,7 +1183,7 @@ template<typename X,
     typename V = to_vec_t<X>,
     typename C = component_of_t<X>,
     size_t N = comp_count_v<X>,
-    typename U = typename V::to_unsigned>
+    typename U = typename V::as_unsigned>
 always_inline void vec_scatter(
     C *addr, U indices, X values)
 {
@@ -1100,7 +1212,7 @@ always_inline void vec_scatter(int32_t *addr,
 
 // 256-bit gather
 always_inline vecu32x8 vec_gather(uint32_t const *buffer,
-    vecu32x8 indices, vecu32x8 background, vecu32x8 mask)
+    vecu32x8 indices, vecu32x8 background, veci32x8 mask)
 {
 #if GATHER_IS_GOOD && defined(__AVX2__)
     vecu32x8 result = cast_to<vecu32x8>(
@@ -1128,7 +1240,7 @@ always_inline vecu32x8 vec_gather(uint32_t const *buffer,
 
 // 512-bit gather
 always_inline vecu32x16 vec_gather(uint32_t const *buffer,
-    vecu32x16 indices, vecu32x16 background, vecu32x16 mask)
+    vecu32x16 indices, vecu32x16 background, veci32x16 mask)
 {
 #if GATHER_IS_GOOD && defined(__AVX512F__)
     __mmask8 compact_mask = _mm512_test_epi32_mask(
@@ -1182,93 +1294,22 @@ always_inline vecu32x16 vec_gather(uint32_t const *buffer,
     return result;
 }
 
-always_inline int vec_movemask(vecu32x8 i)
+template<typename I, typename B, typename M,
+    typename IC = component_of_t<I>,
+    typename BC = component_of_t<B>,
+    typename MC = component_of_t<M>,
+    size_t IN = comp_count_v<I>,
+    size_t BN = comp_count_v<B>,
+    size_t MN = comp_count_v<M>,
+    typename = std::enable_if_t<IN == MN && BN == MN>,
+    typename IM = vec_t<int, BN>>
+B vec_gather(BC const *buffer,
+    I indices, B background, M mask)
 {
-#if defined(__AVX2__)
-    return _mm256_movemask_epi8(
-        cast_to<__m256i>(i));
-#elif defined(__SSE2__)
-    int lo = _mm_movemask_epi8(
-        cast_to<__m128i>(vec_lo(i)));
-    int hi = _mm_movemask_epi8(
-        cast_to<__m128i>(vec_hi(i)));
-    return lo | (hi << 16);
-#else
-    vecu32x8 bits{
-        0xF,
-        0xF0,
-        0xF00,
-        0xF000,
-        0xF0000,
-        0xF00000,
-        0xF000000,
-        0xF0000000
-    };
-    vecu32x8 msb = vec_broadcast_u8(0x80000000U);
-    bits = bits & msb;
-
-    return (bits[0] | bits[1]) | (bits[2] | bits[3]) |
-        (bits[4] | bits[5]) | (bits[6] | bits[7]);
-#endif
+    return vec_gather(buffer, indices,
+        background, cast_to<IM>(mask));
 }
 
-always_inline int vec_movemask(vecf32x8 i)
-{
-#if defined(__AVX2__)
-    return _mm256_movemask_ps(i);
-#elif defined(__SSE2__)
-    int lo = _mm_movemask_ps(
-        cast_to<__m128>(vec_lo(i)));
-    int hi = _mm_movemask_ps(
-        cast_to<__m128>(vec_hi(i)));
-    return lo | (hi << 16);
-#else
-    vecu32x8 bits{
-        0xF,
-        0xF0,
-        0xF00,
-        0xF000,
-        0xF0000,
-        0xF00000,
-        0xF000000,
-        0xF0000000
-    };
-    vecu32x8 msb = vec_broadcast_u8(0x80000000U);
-    bits = bits & msb;
-
-    return (bits[0] | bits[1]) | (bits[2] | bits[3]) |
-        (bits[4] | bits[5]) | (bits[6] | bits[7]);
-#endif
-}
-
-always_inline int vec_movemask(veci32x8 i)
-{
-    return vec_movemask(cast_to<vecu32x8>(i));
-}
-
-always_inline int vec_movemask(vecu32x4 i)
-{
-#if defined(__SSE2__)
-    return _mm_movemask_epi8(
-        cast_to<__m128i>(i));
-#else
-    vecu32x4 bits{
-        0xF,
-        0xF0,
-        0xF00,
-        0xF000
-    };
-    vecu32x4 msb = vec_broadcast_u4(0x80000000U);
-    bits = bits & msb;
-
-    return (bits[0] | bits[1]) | (bits[2] | bits[3]);
-#endif
-}
-
-always_inline int vec_movemask(veci32x4 i)
-{
-    return vec_movemask(cast_to<vecu32x4>(i));
-}
 
 template<typename T>
 struct vec_larger_type;
@@ -1297,14 +1338,14 @@ always_inline vecf32x16 abs(vecf32x16 f)
 
 template<typename V>
 always_inline void cross(
-    V& __restrict out_x, 
-    V&  __restrict out_y, 
+    V& __restrict out_x,
+    V&  __restrict out_y,
     V&  __restrict out_z,
-    V const& __restrict lhs_x, 
-    V const& __restrict lhs_y, 
+    V const& __restrict lhs_x,
+    V const& __restrict lhs_y,
     V const& __restrict lhs_z,
-    V const& __restrict rhs_x, 
-    V const& __restrict rhs_y, 
+    V const& __restrict rhs_x,
+    V const& __restrict rhs_y,
     V const& __restrict rhs_z)
 {
     out_x = lhs_y * rhs_z - rhs_y * lhs_z;
@@ -1314,11 +1355,11 @@ always_inline void cross(
 
 template<typename V>
 always_inline void cross_inplace(
-    V& __restrict lhs_x, 
-    V& __restrict lhs_y, 
+    V& __restrict lhs_x,
+    V& __restrict lhs_y,
     V& __restrict lhs_z,
-    V const& __restrict rhs_x, 
-    V const& __restrict rhs_y, 
+    V const& __restrict rhs_x,
+    V const& __restrict rhs_y,
     V const& __restrict rhs_z)
 {
     V tmp_x = lhs_y * rhs_z - rhs_y * lhs_z;
@@ -1335,19 +1376,19 @@ always_inline constexpr V dot(
     V const& lhs_x, V const& lhs_y, V const& lhs_z,
     V const& rhs_x, V const& rhs_y, V const& rhs_z)
 {
-    return lhs_x * rhs_x + 
-        lhs_y * rhs_y + 
+    return lhs_x * rhs_x +
+        lhs_y * rhs_y +
         lhs_z * rhs_z;
 }
 
 // Return lowest set bit, or -1 if no bits set at all
-always_inline constexpr int ffs(uint32_t n)
+always_inline constexpr int ffs0(uint32_t n)
 {
     return __builtin_ffs(n) - 1;
 }
 
 // Return lowest set bit, or -1 if no bits set at all
-always_inline int ffs(uint64_t n)
+always_inline int ffs0(uint64_t n)
 {
     return __builtin_ffsll(n) - 1;
 }
@@ -1362,12 +1403,269 @@ using vecf32auto = vecf32x4;
 #error Unknown prerferred vector size
 #endif
 
+template<typename V, typename U>
+always_inline V vec_shuffle(V const& lhs, U const& sel)
+{
+    static_assert(sizeof(V) == sizeof(U));
+    static_assert(comp_count_v<V> == comp_count_v<U>);
+    static_assert(std::is_integral_v<component_of_t<U>>);
+    return __builtin_shuffle(lhs, sel);
+}
+
 template<typename V,
-    //typename C = component_of_t<V>,
-    //size_t sz = comp_count_v<V>,
+    typename D = vecinfo_t<V>,
+    size_t sz = comp_count_v<V>,
+    typename R = typename D::as_unsigned>
+always_inline R vec_lanemask(size_t n)
+{
+    return D::lanemask[std::min(n, sz)];
+}
+
+template<typename V,
+    typename D = vecinfo_t<V>,
+    typename R = typename D::as_unsigned>
+always_inline R vec_laneoffsu()
+{
+    return D::laneoffsu;
+}
+
+template<typename V, typename U>
+always_inline V vec_shuffle2(V const& lhs,
+    V const& rhs, U const& sel)
+{
+    static_assert(sizeof(V) == sizeof(U));
+    static_assert(comp_count_v<V> == comp_count_v<U>);
+    static_assert(std::is_integral_v<component_of_t<U>>);
+    return __builtin_shuffle(lhs, rhs, sel);
+}
+
+template<typename V, typename U>
+V vec_permute(V const& lhs, U const& rhs)
+{
+    static_assert(comp_count_v<V> == comp_count_v<U>);
+
+    V result;
+
+    for (size_t c = 0; c < comp_count_v<V>; ++c)
+        result[c] = lhs[rhs[c]];
+
+    return result;
+}
+
+#if defined(__SSE2__)
+always_inline vecf32x4 vec_permute(
+    vecf32x4 const& lhs, vecu32x4 const& rhs)
+{
+    return cast_to<vecf32x4>(
+        _mm_permutevar_ps(
+            cast_to<__m128>(lhs),
+            cast_to<__m128i>(rhs)));
+}
+#endif
+
+#if defined(__AVX2__)
+always_inline vecf32x8 vec_permute(
+    vecf32x8 const& lhs, vecu32x8 const& rhs)
+{
+    return cast_to<vecf32x8>(
+        _mm256_permutevar8x32_ps(
+            cast_to<__m256>(lhs),
+            cast_to<__m256i>(rhs)));
+}
+#else
+// Synthesize N bit permute with 4 N/2 bit permutes
+template<typename X,
+    typename U = typename vecinfo_t<X>::as_unsigned>
+always_inline X vec_permute_synthetic(
+        X const& lhs, U const& sel)
+{
+    constexpr auto sz = comp_count_v<X>;
+    constexpr auto half = sz >> 1;
+
+    using C = component_of_t<X>;
+    using Vhalf = vec_t<C, half>;
+
+    Vhalf lhs_lo = cast_to<Vhalf>(vec_lo(lhs));
+    Vhalf lhs_hi = cast_to<Vhalf>(vec_hi(lhs));
+
+    Vhalf sel_lo = vec_lo(sel) & ~-sz;
+    Vhalf sel_hi = vec_hi(sel) & ~-sz;
+
+    Vhalf lo_sel_lo = (sel_lo < half);
+    Vhalf hi_sel_lo = (sel_hi < half);
+
+    // Get the stuff in the low half
+    // selecting from the low half
+    Vhalf res_lo = vec_permute(
+        lhs_lo, sel_lo) & lo_sel_lo;
+
+    // Get the stuff from the high half
+    // selecting from the high half
+    Vhalf res_hi = vec_permute(
+        lhs_hi, sel_hi - half) & ~hi_sel_lo;
+
+    // Get the stuff in the low half
+    // selecting from the high half
+    res_lo |= vec_permute(
+        lhs_hi, sel_lo - half) & ~lo_sel_lo;
+
+    // Get the stuff in the high half
+    // selecting from the low half
+    res_hi |= vec_permute(
+        lhs_lo, sel_hi) & hi_sel_lo;
+
+    // Combine the permutation
+    return vec_combine(res_lo, res_hi);
+}
+
+// Synthesize 256 bit permute with 4 128 bit permutes
+always_inline vecf32x8 vec_permute(
+        vecf32x8 const& lhs, vecu32x8 const& sel)
+{
+    return vec_permute_synthetic(lhs, sel);
+}
+
+// Synthesize 512 bit permute with 4 256 bit permutes
+always_inline vecf32x16 vec_permute(
+        vecf32x16 const& lhs, vecu32x16 const& sel)
+{
+    return vec_permute_synthetic(lhs, sel);
+}
+#endif
+
+#if defined(__AVX2__)
+always_inline vecu32x8 vec_permute(
+    vecu32x8 const& lhs, vecu32x8 const& rhs)
+{
+    return cast_to<vecu32x8>(
+        _mm256_permutevar8x32_epi32(
+            cast_to<__m256i>(lhs),
+            cast_to<__m256i>(rhs)));
+}
+#endif
+
+// Expects you to pass a reference to an unsigned,
+// which we call `count`, which tracks how many
+// components of the SoA have been used.
+// This structure sets up a permutation mask
+// to rapidly collect unmasked fields into the
+// fields of the last struct of an SoA, also
+// setting up the continuation to deposit the
+// remaining fields onto the next SoA
+template<typename V,
+    typename U = typename vecinfo_t<V>::as_unsigned,
+    size_t vec_sz = comp_count_v<V>>
+struct deposit_mask {
+    deposit_mask() = default;
+    deposit_mask(deposit_mask const&) = delete;
+    deposit_mask(deposit_mask&&) = default;
+    deposit_mask& operator=(deposit_mask const&) = delete;
+    deposit_mask& operator=(deposit_mask&&) = default;
+    ~deposit_mask() = default;
+
+    template<typename A, typename ...Args>
+    deposit_mask(unsigned count, unsigned bitmask, A& soa_vector,
+        Args&& ...args)
+    {
+        // Catch blundering callers preparing to deposit nothing
+        assert(bitmask != 0);
+        setup(count, bitmask,
+            soa_vector, std::forward<Args>(args)...);
+    }
+
+    template<typename A, typename ...Args>
+    bool setup(unsigned count, unsigned bitmask, A& soa_vector,
+        Args&& ...args)
+    {
+        // Fill the lower components
+        // with an integer sequence
+        // to keep the existing components
+        // in the source
+
+        // Component number to put next item
+        unsigned comp = count & ~-vec_sz;
+
+        // Infer the blend mask from the permutation mask
+        perm_selector = vec_broadcast<U>(-1U);
+
+        unsigned ofs = 0;
+        for (deposited = 0; bitmask && comp < vec_sz;
+                ++deposited, ++comp, ++ofs) {
+            int bit = ffs0(bitmask);
+            ofs += bit;
+            bitmask >>= bit + 1;
+            perm_selector[comp] = ofs;
+        }
+
+        // Add a structure of arrays if necessary
+        // This is a somewhat odd place to do this, but it is here
+        // so we don't have to check every time we write a field
+        // The penalty of this is that the aos might have one
+        // entire unused object at the end.
+        if (count == soa_vector.size() * vec_sz)
+            soa_vector.emplace_back(std::forward<Args>(args)...);
+
+        remainder = bitmask;
+
+        return true;
+    }
+
+    always_inline_method
+    bool need_continuation() const
+    {
+        return remainder != 0;
+    }
+
+    // Bump count forward by the amount deposited
+    // Make a new deposit mask that continues
+    // in the next structure of vectors
+    template<typename C>
+    bool continue_from(unsigned &count, C &soa_vector)
+    {
+        // Update count (after caller updates all the fields)
+        count += deposited;
+
+        // Clear deposited so we can catch
+        // erroneous calls to deposit_into
+        deposited = 0;
+
+        // We expect small appends to be
+        // more frequent than full ones
+        if (remainder == 0)
+            return false;
+
+        // This sets up deposited, so it is okay
+        // to deposit_into after this returns true
+        return setup(count, remainder, soa_vector);
+    }
+
+    always_inline_method
+    void deposit_into(V& field, V const& data)
+    {
+        assert(deposited);
+
+        V positioned = vec_permute(
+            data, perm_selector);
+        field = vec_blend(field, positioned,
+            perm_selector != -1U);
+    }
+
+    // The mask for the shuffle/permute
+    // moving the values into position
+    U perm_selector;
+
+    // The number of items that get deposited
+    unsigned deposited;
+
+    // The bitmask with the
+    // deposited bits cleared
+    unsigned remainder;
+};
+
+template<typename V,
     typename D = vecinfo_t<V>,
     typename M = typename D::bitmask,
-    typename U = typename D::to_unsigned>
+    typename U = typename D::as_unsigned>
 always_inline V compress(V const& lhs, U& mask)
 {
     M used = vec_movemask(mask);
@@ -1376,13 +1674,13 @@ always_inline V compress(V const& lhs, U& mask)
     // Copy it so we can just move one
     // component at a time most simply
     V result = lhs;
-    size_t out;
+    int out;
 
     for (out = 0; used; ++out) {
-        int component = ffs(used);
+        int component = ffs0(used);
         used &= ~(1U << component);
 
-        if (out != component)
+        //if (out != component)
             result[out] = result[component];
     }
 
@@ -1452,7 +1750,7 @@ always_inline vecf32x16 sqrt(vecf32x16 const& x)
 #endif
 }
 
-always_inline constexpr vecf32x4 inv_sqrt(vecf32x4 const& x)
+always_inline vecf32x4 inv_sqrt(vecf32x4 const& x)
 {
 #if defined(__SSE2__)
     vecf32x4 y = cast_to<vecf32x4>(_mm_rsqrt_ps(
@@ -1501,4 +1799,252 @@ always_inline constexpr void vec_normalize(F &x, F &y, F &z)
     x *= inv_len;
     y *= inv_len;
     z *= inv_len;
+}
+
+template<typename X>
+always_inline bool vec_all_eq(X const& lhs, X const& rhs)
+{
+    for (size_t c = 0; c < comp_count_v<X>; ++c)
+        if (lhs[c] != rhs[c])
+            return false;
+    return true;
+}
+
+#include "vector_movemask.h"
+
+// Gives a generalized mask
+// plus an example of "all true" in `second`
+// It does this so you could, for a 128 bit
+// example, use movmskps and get a 4 bit mask,
+// or it could use movmskb and get a 16 bit mask
+// It tells you what kind of mask with `second`
+//
+// any true: x.first != 0
+// all false: x.first == 0
+// all true: x.first == x.second
+// any false: x.first != x.second
+template<typename X>
+always_inline std::pair<uint64_t, uint64_t>
+vec_mask_pair(X const& i)
+{
+    using C = component_of_t<X>;
+    constexpr auto csz = sizeof(C);
+    constexpr auto integral = std::is_integral_v<C>;
+    constexpr auto sz = comp_count_v<X>;
+
+#if defined(__AVX512F__)
+    if constexpr (integral &&
+            csz == sizeof(uint64_t) &&
+            sz == 4)
+        return {
+            _mm512_movepi64_mask(
+                cast_to<__m512i>(i)),
+            ~-(1U << sz)
+        };
+    if constexpr (integral &&
+            csz == sizeof(uint32_t) &&
+            sz == 16)
+        return {
+            _mm512_movepi32_mask(
+                cast_to<__m512i>(i)),
+            ~-(1U << sz)
+        };
+    if constexpr (integral &&
+            csz == sizeof(uint16_t) &&
+            sz == 32)
+        return {
+            _mm512_movepi16_mask(
+                cast_to<__m512i>(i)),
+            ~-(1U << sz)
+        };
+    if constexpr (integral &&
+            csz == sizeof(uint8_t) &&
+            sz == 64)
+        return {
+            _mm512_movepi8_mask(
+                cast_to<__m512i>(i)),
+            ~-(1U << sz)
+        };
+    if constexpr (!integral &&
+            csz == sizeof(float) &&
+            sz == 16)
+        return {
+            _mm512_movepi32_mask(
+                cast_to<__m512i>(i)),
+            ~-(1U << sz)
+        };
+    if constexpr (!integral &&
+            csz == sizeof(double) &&
+            sz == 8)
+        return {
+            _mm512_movepi64_mask(
+                cast_to<__m512i>(i)),
+            ~-(1U << sz)
+        };
+#else
+    if constexpr (sizeof(X) == 64)
+        return vec_mask_pair_synthetic(i);
+#endif
+
+#ifdef __AVX2__
+    if constexpr (sizeof(X) == 32 && integral)
+        return {
+            _mm256_movemask_epi8(
+                cast_to<__m256>(i)),
+            ~-(1UL << sizeof(X))
+        };
+    if constexpr (sizeof(X) == 32 &&
+            sizeof(C) == sizeof(float) && !integral)
+        return {
+            _mm256_movemask_ps(
+                cast_to<__m256>(i)),
+            ~-(1U << sz)
+        };
+    if constexpr (sizeof(X) == 32 &&
+            sizeof(C) == sizeof(double) && !integral)
+        return {
+            _mm256_movemask_pd(
+                cast_to<__m256>(i)),
+            ~-(1U << sz)
+        };
+#else
+    if (sizeof(X) == 32)
+        return vec_mask_pair_synthetic(i);
+#endif
+#if defined(__SSE2__)
+    if constexpr (sizeof(X) == 16 && integral)
+        return {
+            _mm_movemask_epi8(
+                cast_to<__m128>(i)),
+            ~-(1U << sizeof(X))
+        };
+    if constexpr (sizeof(X) == 16 &&
+            sizeof(C) == sizeof(float) && !integral)
+        return {
+            _mm_movemask_ps(
+                cast_to<__m128>(i)),
+            ~-(1U << sz)
+        };
+    if constexpr (sizeof(X) == 16 &&
+            sizeof(C) == sizeof(double) && !integral)
+        return {
+            _mm_movemask_pd(
+                cast_to<__m128>(i)),
+            ~-(1U << sz)
+        };
+#elif defined(__ARM_NEON)
+    if constexpr (sizeof(X) > 16)
+        return vec_mask_pair_synthetic(i);
+
+    if constexpr (sizeof(X) == 16 &&
+            sizeof(C) == sizeof(uint64_t)) {
+        return vpaddq_u64(vandq_u64(
+            cast_to<uint64>(i),
+            int64x2{
+                1U << 0,
+                1U << 1
+            };
+        )
+    }
+
+    if constexpr (sizeof(X) == 16 &&
+            sizeof(C) == sizeof(uint32_t)) {
+        return vpaddq_u32(vandq_u32(
+            cast_to<uint32>(i),
+            int32x4{
+                1U << 0,
+                1U << 1,
+                1U << 2,
+                1U << 3
+            };
+        )
+    }
+
+    if constexpr (sizeof(X) == 16 &&
+            sizeof(C) == sizeof(uint16_t)) {
+        // Need to unpack so component is big
+        // enough to contain the whole mask
+        uint16x8_t n = vandq_u16(
+            cast_to<uint16x8_t>(i),
+            int16x8_t{
+                1U << 0,
+                1U << 1,
+                1U << 2,
+                1U << 3,
+                1U << 4,
+                1U << 5,
+                1U << 6,
+                1U << 7
+            });
+        return {
+            vpaddq_u16(lo),
+            ~-(1U << sz)
+        };
+    }
+
+    if constexpr (sizeof(X) == 16 &&
+            sizeof(C) == sizeof(uint8_t)) {
+        // Need to unpack so component is big
+        // enough to contain the whole mask
+        vecu16x8 lo, hi;
+        unpack(&lo, &hi, i);
+
+        lo = vandq_u16(
+            cast_to<uint16x8_t>(lo),
+            int16x8_t{
+                1U << 0,
+                1U << 1,
+                1U << 2,
+                1U << 3,
+                1U << 4,
+                1U << 5,
+                1U << 6,
+                1U << 7
+            });
+        hi = vandq_u16(
+            cast_to<uint16x8_t>(hi),
+            int16x8_t{
+                1U << 8,
+                1U << 9,
+                1U << 10,
+                1U << 11,
+                1U << 12,
+                1U << 13,
+                1U << 14,
+                1U << 15
+            });
+        return {
+            vpaddq_u16(lo) + vpaddq_u16(hi),
+            ~-(1U << sz)
+        };
+    }
+#endif
+}
+
+template<typename X>
+always_inline bool vec_any_true(X const& i)
+{
+    auto x = vec_mask_pair(i);
+    return x.first;
+}
+
+template<typename X>
+always_inline bool vec_any_false(X const& i)
+{
+    auto x = vec_mask_pair(i);
+    return x.first != x.second;
+}
+
+template<typename X>
+always_inline bool vec_all_true(X const& i)
+{
+    auto x = vec_mask_pair(i);
+    return x.first == x.second;
+}
+
+template<typename X>
+always_inline bool vec_all_false(X const& i)
+{
+    auto x = vec_mask_pair(i);
+    return !x.first;
 }

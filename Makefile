@@ -20,6 +20,7 @@ UNAME ?= $(shell $(WHICH) uname)
 ARCH ?= $(shell $(UNAME) -m)
 NPROC ?= $(shell $(WHICH) nproc)
 RM ?= $(shell $(WHICH) rm)
+MKDIR ?= $(shell $(WHICH) mkdir)
 SUDO ?= $(shell $(WHICH) sudo)
 SETCAP ?= $(shell $(WHICH) setcap)
 LLVM_PROFDATA ?= $(shell $(WHICH) llvm-profdata)
@@ -31,7 +32,9 @@ ifeq ($(ARCH),x86_64)
 VECFLAGS += -DARCH_X86_64
 #VECFLAGS = -DHAVE_HUGEPAGES=1
 
-VECFLAGS += -mtune=znver2 -mavx -mavx2 -mfma -mbmi -mbmi2 \
+VECFLAGS += -mtune=znver2 \
+	-msse3 -mssse3 -msse4.1 -msse4.2 \
+	-mavx -mavx2 -mfma -mbmi -mbmi2 \
 	-DHAVE_HUGEPAGES=1
 
 #VECFLAGS = -DHAVE_VEC128=1
@@ -45,7 +48,7 @@ endif
 
 #	-fvar-tracking -fvar-tracking-assignments
 
-CXXFLAGS := -Wall \
+CXXFLAGS := -Wall -Wextra \
 	-std=c++17 \
 	-ggdb3 \
 	-Werror=return-type \
@@ -53,6 +56,7 @@ CXXFLAGS := -Wall \
 	-Werror=format \
 	-pthread \
 	-fno-plt \
+	-I$(SRC_DIR) \
 	$(VECFLAGS) \
 	$(CXXFLAGS)
 
@@ -68,7 +72,8 @@ CXXFLAGS += -fsanitize=$(SANITIZE)
 endif
 
 ifeq ($(DEBUG),)
-CXXFLAGS += -Os -ftree-vectorize -flto -ffast-math -fassociative-math
+CXXFLAGS += -Ofast -ftree-vectorize \
+	-flto -ffast-math -fassociative-math
 else
 CXXFLAGS += -O0
 endif
@@ -92,7 +97,9 @@ OBJS := pool.o funsdl.o funrender.o affinity.o \
 	stb_image_impl.o text.o objmodel.o \
 	3ds.o cpu_usage.o huge_alloc.o
 
-all: funrender
+TESTOBJS := test/test_vector.o
+
+all: funrender test-funrender
 
 clean:
 	$(RM) -f funrender \
@@ -100,12 +107,18 @@ clean:
 		$(OBJS:.o=.d) \
 		$(OBJS:.o=.gcda) \
 		$(OBJS:.o=.gcno) \
+		$(TESTOBJS) \
+		$(TESTOBJS:.o=.d) \
 		default.profdata \
 		funrender.profdata \
 		gmon.out \
 		build.log
 
 -include $(OBJS:.o=.d)
+-include $(TESTOBJS:.o=.d)
+
+GTEST_CFLAGS = $(shell $(PKG_CONFIG) --cflags gtest)
+GTEST_LIBS = $(shell $(PKG_CONFIG) --libs gtest)
 
 SDL_CFLAGS = $(shell $(PKG_CONFIG) --cflags sdl2) \
 	 $(shell $(PKG_CONFIG) --cflags SDL2_ttf)
@@ -127,6 +140,13 @@ grantlargepages: $(PROGRAM)
 run: $(PROGRAM)
 	$(PROGRAM)
 
+test: test-funrender
+	./$<
+
+test-funrender: $(TESTOBJS)
+	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) \
+		$(GTEST_CFLAGS) $(GTEST_LIBS)
+
 line-profile: default.profdata
 	$(LLVM_COV) show -instr-profile=$< $(PROGRAM)
 
@@ -140,4 +160,8 @@ scanview-clang:
 
 #$(info BUILD_DIR=$(BUILD_DIR) and SRC_DIR=$(SRC_DIR))
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
+	$(CXX) -o $@ -c $< $(CXXFLAGS)
+
+$(BUILD_DIR)/test/%.o: $(SRC_DIR)/test/%.cpp
+	$(MKDIR) -p $(@D)
 	$(CXX) -o $@ -c $< $(CXXFLAGS)

@@ -581,7 +581,7 @@ void fill_mainloop(
             mask &= (T)(z_vec < depths);
         }
 
-        if (vec_movemask(mask)) {
+        if (vec_any_true(mask)) {
             if constexpr (write_z) {
                 // Update depth (get it over with so we can do the real work)
                 F upd_depth = vec_blend(depths, z_vec, mask);

@@ -5,6 +5,7 @@
 #include <cassert>
 #include <array>
 #include <unordered_map>
+#include <set>
 #include <sstream>
 #include <random>
 #include <glm/glm.hpp>
@@ -800,7 +801,7 @@ class simd_raytracer {
 
     // The code probably needs to be 32 bit components
     // it needs reviewing to make sure this assert
-    // isn't needed, half expect it might almost 
+    // isn't needed, half expect it might almost
     // work though
     static_assert(std::is_same_v<C, float>,
         "Requires single precision float"
@@ -818,6 +819,8 @@ class simd_raytracer {
     using D = vecinfo_t<F>;
 public:
     using vertex_type = scaninfo;
+    static constexpr glm::vec4 vertex_type::*pm =
+        &vertex_type::p;
     using index_type = uint32_t;
     using component_type = C;
 
@@ -860,8 +863,7 @@ public:
         F col_b;
 
         // Remember which pixel owns this ray
-        F screen_x;
-        F screen_y;
+        F pixel_nr;
     };
 
     // Holds a bundle of ray-triangle
@@ -882,8 +884,8 @@ public:
         F nz;
     };
 
-    // An implementation of the Möller–Trumbore
-    // intersection algorithm
+    // A SIMD implementation of the
+    // Möller–Trumbore intersection algorithm
     struct collision_detail {
         template<bool check>
         always_inline_method
@@ -929,9 +931,9 @@ public:
             F inv_det = 1.0f / determinants;
 
             // T = v1 - ray_origin
-            T_x = rays.ori_x - v1.p.x;
-            T_y = rays.ori_y - v1.p.y;
-            T_z = rays.ori_z - v1.p.z;
+            T_x = rays.ori_x - (v1.*pm).x;
+            T_y = rays.ori_y - (v1.*pm).y;
+            T_z = rays.ori_z - (v1.*pm).z;
 
             // u = (T dot p) / determinant
             u = dot(T_x, T_y, T_z,
@@ -942,7 +944,7 @@ public:
                 lanemask &= u >= 0.0f;
                 lanemask &= u <= 1.0f;
 
-                if (vec_movemask(lanemask) == 0)
+                if (vec_all_false(lanemask))
                     return false;
             }
 
@@ -963,7 +965,7 @@ public:
                 lanemask &= v >= 0.0f;
                 lanemask &= v <= 1.0f;
 
-                if (vec_movemask(lanemask) == 0)
+                if (vec_all_false(lanemask))
                     return false;
             }
 
@@ -978,7 +980,7 @@ public:
                 // Okay if in front of origin
                 lanemask &= T > epsilon;
 
-                if (vec_movemask(lanemask) == 0)
+                if (vec_all_false(lanemask))
                     return false;
             }
 
@@ -986,26 +988,36 @@ public:
         }
 
         always_inline_method
-        void update_best(uint32_t element_nr, ray_best_match &matches)
+        void update_best(ray_bundle const& rays,
+            uint32_t element_nr, ray_best_match *matches)
         {
             // Squared distance from the
             // ray origin to the triangle
             F sq_dist = T_x * T_x + T_y * T_y + T_z * T_z;
 
-            lanemask &= sq_dist < matches.min_sqdist;
-
             // Avoid the stores below that have no effect,
             // other than dirtying cache lines for nothing
-            if (vec_movemask(lanemask) == 0)
-                return;
+            unsigned bitmask = vec_movemask(lanemask);
+            while (bitmask) {
+                int lane = ffs0(bitmask);
+                bitmask &= ~(1U << lane);
 
-            // Write back improved minimums
-            matches.min_sqdist = vec_blend(
-                matches.min_sqdist, sq_dist, lanemask);
+                uint32_t pixel_nr = rays.pixel_nr[lane];
+                int match_lane = pixel_nr & ~-vec_sz;
+                ray_best_match &match_bundle = matches[pixel_nr / vec_sz];
+                if (sq_dist[lane] < match_bundle.min_sqdist[match_lane]) {
+                    match_bundle.min_sqdist[match_lane] = sq_dist[lane];
+                    match_bundle.best_element[match_lane] = element_nr;
+                }
+            }
 
-            // Write out the closer element numbers
-            matches.best_element = vec_blend(matches.best_element,
-                vec_broadcast<U>(element_nr), lanemask);
+            // // Write back improved minimums
+            // matches.min_sqdist = vec_blend(
+            //     matches.min_sqdist, sq_dist, lanemask);
+
+            // // Write out the closer element numbers
+            // matches.best_element = vec_blend(matches.best_element,
+            //     vec_broadcast<U>(element_nr), lanemask);
         }
 
         // This expects that you have set up lanemask
@@ -1057,22 +1069,45 @@ public:
     };
 
     // AABB slab node
-    struct node {
+    struct bvh_node {
         // Cartesian AABB
-        F sx;   // left
-        F sy;   // bottom
-        F sz;   // far
+        float sx;   // left
+        float sy;   // bottom
+        float sz;   // far
 
-        F ex;   // right
-        F ey;   // top
-        F ez;   // near
+        float ex;   // right
+        float ey;   // top
+        float ez;   // near
 
-        std::unique_ptr<node> children[vec_sz];
-        std::vector<index_type> elements[vec_sz];
+        std::unique_ptr<bvh_node> children[2];
+        std::vector<index_type> elements;
 
-        void partition()
+        // Queue of rays to be checked against children
+        unsigned pending_count{};
+        std::vector<ray_bundle> pending_rays;
+
+        void deposit_pending(
+            ray_bundle const& rays,
+            unsigned intersect_mask)
         {
-
+            // Queue the rays into the node
+            deposit_mask<F> dep{
+                pending_count,
+                intersect_mask,
+                pending_rays};
+            do {
+                ray_bundle &last_soa = pending_rays.back();
+                dep.deposit_into(last_soa.ori_x, rays.ori_x);
+                dep.deposit_into(last_soa.ori_y, rays.ori_y);
+                dep.deposit_into(last_soa.ori_z, rays.ori_z);
+                dep.deposit_into(last_soa.dir_x, rays.dir_x);
+                dep.deposit_into(last_soa.dir_y, rays.dir_y);
+                dep.deposit_into(last_soa.dir_z, rays.dir_z);
+                dep.deposit_into(last_soa.col_r, rays.col_r);
+                dep.deposit_into(last_soa.col_g, rays.col_g);
+                dep.deposit_into(last_soa.col_b, rays.col_b);
+                dep.deposit_into(last_soa.pixel_nr, rays.pixel_nr);
+            } while (dep.continue_from(pending_count, pending_rays));
         }
 
         // Returns a bitmask for each
@@ -1083,7 +1118,7 @@ public:
                 std::numeric_limits<C>::epsilon();
 
             // See if nearly parallel
-            // and also not between the slabs
+            // and also not between the slab planes
             // on each axis
 
             // ray is parallel to x
@@ -1111,7 +1146,7 @@ public:
                 (rays.ori_z <= ez));
 
             // Return zero early if done already
-            if (vec_movemask(keep) == 0)
+            if (vec_all_false(keep))
                 return 0;
 
             int result = 0;
@@ -1148,7 +1183,7 @@ public:
     __attribute__((__noinline__))
     void apply_closer_intersection(
         ray_bundle const &rays,
-        ray_best_match &matches,
+        //ray_best_match &matches,
         vertex_type const *verts,
         uint32_t const *indices,
         uint32_t element_nr) const
@@ -1162,7 +1197,7 @@ public:
         // The lanemask does not need to
         // be set when check=true
         if (collision.template collide<true>(rays, v1, v2, v3))
-            collision.update_best(element_nr, matches);
+            collision.update_best(rays, element_nr, best_matches);
     }
 
     void actual_intersection(
@@ -1179,7 +1214,7 @@ public:
         collision_detail collision;
         while (found_any) {
             // Find the first lane that found something
-            int first_lane = ffs((uint32_t)found_any);
+            int first_lane = ffs0((uint32_t)found_any);
 
             // Read the value of that component
             uint32_t element_nr = matches.best_element[first_lane];
@@ -1209,7 +1244,14 @@ public:
     vertex_lookup_map vertex_lookup;
     std::vector<index_type> elements;
 
-    std::unique_ptr<node> root;
+    std::unique_ptr<bvh_node> root;
+
+    void clear()
+    {
+        vertices.clear();
+        vertex_lookup.clear();
+        elements.clear();
+    }
 
     void add_triangles_indexed(
         glm::mat4 const& modelview_matrix,
@@ -1239,45 +1281,202 @@ public:
         }
     }
 
+    void partition(bvh_node *node)
+    {
+        std::vector<bvh_node*> todo(1, node);
+
+        do {
+            node = todo.back();
+            todo.pop_back();
+
+            if (node->elements.size() < 8)
+                continue;
+
+            float dx = node->ex - node->sx;
+            float dy = node->ey - node->sy;
+            float dz = node->ez - node->sz;
+
+            float glm::vec4::*field;
+            float mid;
+
+            if (dx >= dy && dx >= dz) {
+                // Partition on x
+                field = &glm::vec4::x;
+                mid = dx * 0.5f + node->sx;
+            } else if (dy >= dx && dy >= dz) {
+                // Partition on y
+                field = &glm::vec4::y;
+                mid = dy * 0.5f + node->sy;
+            } else {
+                // Partition on z
+                field = &glm::vec4::z;
+                mid = dz * 0.5f + node->sz;
+            }
+
+            glm::vec4 tri_min;
+            glm::vec4 tri_max;
+
+            for (auto el : node->elements) {
+                // Get triangle
+                scaninfo &v0 = vertices.at(elements[el]);
+                scaninfo &v1 = vertices.at(elements[el+1]);
+                scaninfo &v2 = vertices.at(elements[el+2]);
+                index_type material_nr = elements[el+3];
+
+                // Get AABB of triangle
+                tri_min.x = sane_min((v0.*pm).x, (v1.*pm).x);
+                tri_max.x = sane_max((v0.*pm).x, (v1.*pm).x);
+                tri_min.y = sane_min((v0.*pm).y, (v1.*pm).y);
+                tri_max.y = sane_max((v0.*pm).y, (v1.*pm).y);
+                tri_min.z = sane_min((v0.*pm).z, (v1.*pm).z);
+                tri_max.z = sane_max((v0.*pm).z, (v1.*pm).z);
+                tri_min.x = sane_min(tri_min.x, (v2.*pm).x);
+                tri_max.x = sane_max(tri_max.x, (v2.*pm).x);
+                tri_min.y = sane_min(tri_min.y, (v2.*pm).y);
+                tri_max.y = sane_max(tri_max.y, (v2.*pm).y);
+                tri_min.z = sane_min(tri_min.z, (v2.*pm).z);
+                tri_max.z = sane_max(tri_max.z, (v2.*pm).z);
+
+                int back0 = (tri_min.*field <= mid);
+                int back1 = (tri_max.*field <= mid) << 1;
+
+                if (back0 == back1) {
+                    // All on one side of partition
+                    auto &child_ptr = node->children[back0];
+                    if (!child_ptr)
+                        child_ptr = std::make_unique<bvh_node>();
+
+                    bvh_node &child = *child_ptr;
+                    child.elements.emplace_back(el);
+                } else {
+                    // Spanning partition
+                    vertex_type frontv[4];
+                    vertex_type backv[4];
+                    size_t front_count{};
+                    size_t back_count{};
+
+                    if (!node->children[0])
+                        node->children[0] = std::make_unique<bvh_node>();
+                    if (!node->children[1])
+                        node->children[1] = std::make_unique<bvh_node>();
+
+                    for (size_t v = 0; v < 3; ++v) {
+                        size_t next = (v + 1) & -(v < 2);
+                        // start vert, end vert
+                        vertex_type sv = vertices[elements[v]];
+                        vertex_type ev = vertices[elements[next]];
+                        // start is on back, end is on back
+                        bool sb = (sv.*pm).*field < mid;
+                        bool eb = (ev.*pm).*field < mid;
+                        // start and end aren't both back or front
+                        if (sb != eb) {
+                            // Get full distance
+                            vertex_type dv = ev - sv;
+                            // Get axis position coordinate
+                            float sf = (sv.*pm).*field;
+                            float ef = (ev.*pm).*field;
+                            // Calculate proportion to partition
+                            float t = (mid - sf) / (ef - sf);
+                            // Interpolate new vertex
+                            vertex_type mv = sv + dv * t;
+                            // If starting on back,
+                            if (sb) {
+                                // starting on back
+                                backv[back_count++] = sv;
+                                backv[back_count++] = mv;
+                                frontv[front_count++] = ev;
+                            } else {
+                                // starting on front
+                                frontv[front_count++] = sv;
+                                frontv[front_count++] = mv;
+                                backv[back_count++] = mv;
+                            }
+                        }
+                    }
+                    index_type front_indices[4];
+                    index_type back_indices[4];
+                    for (size_t i = 0; i < front_count; ++i) {
+                        auto ins = vertex_lookup.emplace(
+                            frontv[i], vertices.size());
+                        if (ins.second)
+                            vertices.emplace_back(frontv[i]);
+                        front_indices[i] = ins.first->second;
+                    }
+                    for (size_t i = 0; i < back_count; ++i) {
+                        auto ins = vertex_lookup.emplace(
+                            backv[i], vertices.size());
+                        if (ins.second)
+                            vertices.emplace_back(backv[i]);
+                        back_indices[i] = ins.first->second;
+                    }
+
+                    // Make a triangle fan from front and back polygon
+                    for (size_t i = 1; i + 2 <= front_count; ++i) {
+                        node->children[0]->elements.emplace_back(front_indices[0]);
+                        node->children[0]->elements.emplace_back(front_indices[i]);
+                        node->children[0]->elements.emplace_back(
+                            front_indices[i + 1]);
+                        node->children[0]->elements.emplace_back(material_nr);
+                    }
+                    for (size_t i = 1; i + 2 <= back_count; ++i) {
+                        node->children[1]->elements.emplace_back(back_indices[0]);
+                        node->children[1]->elements.emplace_back(back_indices[i]);
+                        node->children[1]->elements.emplace_back(
+                            back_indices[i + 1]);
+                        node->children[1]->elements.emplace_back(material_nr);
+                    }
+                }
+            }
+
+            if (node->children[0])
+                todo.emplace_back(node->children[0].get());
+            if (node->children[1])
+                todo.emplace_back(node->children[1].get());
+        } while (!todo.empty());
+    }
+
     void compile()
     {
-        root = std::make_unique<node>();
+        root = std::make_unique<bvh_node>();
 
         glm::vec3 st{std::numeric_limits<float>::max()};
         glm::vec3 en{-std::numeric_limits<float>::max()};
-        for (size_t i = 0; i + 3 <= elements.size(); i += 3) {
+        for (size_t i = 0; i + 4 <= elements.size(); i += 4) {
+            root->elements.push_back(i);
+
             vertex_type v0 = vertices[elements[i]];
             vertex_type v1 = vertices[elements[i+1]];
             vertex_type v2 = vertices[elements[i+2]];
 
-            st.x = sane_min(st.x, v0.p.x);
-            st.y = sane_min(st.y, v0.p.y);
-            st.z = sane_min(st.z, v0.p.z);
-            st.x = sane_min(st.x, v1.p.x);
-            st.y = sane_min(st.y, v1.p.y);
-            st.z = sane_min(st.z, v1.p.z);
-            st.x = sane_min(st.x, v2.p.x);
-            st.y = sane_min(st.y, v2.p.y);
-            st.z = sane_min(st.z, v2.p.z);
+            st.x = sane_min(st.x, (v0.*pm).x);
+            st.y = sane_min(st.y, (v0.*pm).y);
+            st.z = sane_min(st.z, (v0.*pm).z);
+            st.x = sane_min(st.x, (v1.*pm).x);
+            st.y = sane_min(st.y, (v1.*pm).y);
+            st.z = sane_min(st.z, (v1.*pm).z);
+            st.x = sane_min(st.x, (v2.*pm).x);
+            st.y = sane_min(st.y, (v2.*pm).y);
+            st.z = sane_min(st.z, (v2.*pm).z);
 
-            en.x = sane_max(en.x, v0.p.x);
-            en.y = sane_max(en.y, v0.p.y);
-            en.z = sane_max(en.z, v0.p.z);
-            en.x = sane_max(en.x, v1.p.x);
-            en.y = sane_max(en.y, v1.p.y);
-            en.z = sane_max(en.z, v1.p.z);
-            en.x = sane_max(en.x, v2.p.x);
-            en.y = sane_max(en.y, v2.p.y);
-            en.z = sane_max(en.z, v2.p.z);
+            en.x = sane_max(en.x, (v0.*pm).x);
+            en.y = sane_max(en.y, (v0.*pm).y);
+            en.z = sane_max(en.z, (v0.*pm).z);
+            en.x = sane_max(en.x, (v1.*pm).x);
+            en.y = sane_max(en.y, (v1.*pm).y);
+            en.z = sane_max(en.z, (v1.*pm).z);
+            en.x = sane_max(en.x, (v2.*pm).x);
+            en.y = sane_max(en.y, (v2.*pm).y);
+            en.z = sane_max(en.z, (v2.*pm).z);
         }
 
-        root->sx[0] = st.x;
-        root->sy[0] = st.y;
-        root->sz[0] = st.z;
-        root->ex[0] = en.x;
-        root->ey[0] = en.y;
-        root->ez[0] = en.z;
-        root->elements[0].push_back(0);
+        root->sx = st.x;
+        root->sy = st.y;
+        root->sz = st.z;
+        root->ex = en.x;
+        root->ey = en.y;
+        root->ez = en.z;
+
+        partition(root.get());
     }
 
     __attribute__((__noinline__))
@@ -1298,40 +1497,35 @@ public:
         glm::vec3 xedge = pts[1] - pts[0];
         glm::vec3 yedge = pts[2] - pts[0];
 
-        // Figure out how many ray bundles to create
-        int bundles_across = (target.width +
+        // Figure out how many bundles to create
+        int bundles_across = (target.pitch +
             (vec_sz - 1)) / vec_sz;
 
         int bundles = bundles_across * target.height;
 
-        if (ray_count != (size_t)bundles) {
+        if (unlikely(ray_count != (size_t)bundles)) {
             ray_count = bundles;
-            huge_free(aligned_memory, 
+            huge_free(aligned_memory,
                 aligned_memory_size);
-            size_t camera_ray_sz = bundles *
-                sizeof(*camera_rays);
             size_t best_match_sz = bundles *
                 sizeof(*best_matches);
             size_t collisions_sz = bundles *
                 sizeof(*collisions);
-            aligned_memory_size = camera_ray_sz +
-                best_match_sz + collisions_sz;
+            aligned_memory_size = best_match_sz + collisions_sz;
             aligned_memory = huge_alloc(
-                aligned_memory_size,
-                &aligned_memory_size);
+                aligned_memory_size, &aligned_memory_size);
             std::cerr << "Raytracer allocated " <<
-                (aligned_memory_size >> 20) << 
+                (aligned_memory_size >> 20) <<
                 " MB of huge pages\n";
-            camera_rays = reinterpret_cast<ray_bundle *>(
-                aligned_memory);
-            best_matches = reinterpret_cast<ray_best_match *>(
-                camera_rays + bundles);
-            collisions = reinterpret_cast<collision_bundle *>(
-                best_matches + bundles);
-            
-            // Check alignment here, right where it screwed it up
-            // if it ever screws it up, that is
-            assert(!(uintptr_t(camera_rays) & ~-sizeof(F)));
+
+            // These assume one lane per pixel
+            best_matches = reinterpret_cast<
+                ray_best_match *>(aligned_memory);
+            collisions = reinterpret_cast<
+                collision_bundle *>(best_matches + bundles);
+
+            // Check alignment here,
+            // before the details go out of scope
             assert(!(uintptr_t(best_matches) & ~-sizeof(F)));
             assert(!(uintptr_t(collisions) & ~-sizeof(F)));
         }
@@ -1345,10 +1539,12 @@ public:
         // and is like {0.0f, 1.0f, 2.0f, 3.0f, etc...}
         F ofs = D::laneoffs * sw;
 
+        root->pending_rays.resize(target.width * target.height);
+
         size_t i = 0;
         for (float y = 0; y < fh; ++y) {
             for (float x = 0; x < fw; x += vec_sz, ++i) {
-                ray_bundle &bundle = camera_rays[i];
+                ray_bundle &bundle = root->pending_rays[i];
 
                 bundle.ori_x = pts[0].x +
                     xedge.x * ((x + ofs) * sw) +
@@ -1364,7 +1560,11 @@ public:
                 bundle.dir_y = bundle.ori_y - campos.y;
                 bundle.dir_z = bundle.ori_z - campos.z;
 
-                vec_normalize(bundle.dir_x, 
+                bundle.col_r = vec_broadcast<F>(1.0f);
+                bundle.col_g = bundle.col_r;
+                bundle.col_b = bundle.col_r;
+
+                vec_normalize(bundle.dir_x,
                     bundle.dir_y, bundle.dir_z);
 
                 // should be all nearly 1.0f
@@ -1372,36 +1572,100 @@ public:
                 //     bundle.dir_y * bundle.dir_y +
                 //     bundle.dir_z * bundle.dir_z;
 
-                bundle.screen_x = D::laneoffs + x;
-                bundle.screen_y = vec_broadcast<F>(y);
+                bundle.pixel_nr = D::laneoffs + (y * target.pitch + x);
             }
         }
     }
 
+    __attribute__((__noinline__))
     void trace(render_target const& target)
     {
         std::fill(best_matches,
-            best_matches + ray_count, 
+            best_matches + ray_count,
             cleared_best_match);
 
-        for (size_t i = 0; i < ray_count; ++i) {
-            ray_bundle const& rays = camera_rays[i];
-            uint32_t intersect_mask = root->rays_intersect_slab(rays);
+        // todo is an instance member so we don't
+        // have to keep allocating a new one
+        // it will be empty by the time this returns
+        todo.emplace_back(root.get());
 
-            if (intersect_mask) {
-                ray_best_match & best = best_matches[i];
-                collision_bundle const& coll = collisions[i];
+        while (!todo.empty()) {
+            // Get the next node with pending rays
+            bvh_node *item = todo.back();
+            todo.pop_back();
 
-                apply_closer_intersection(rays, best,
-                    vertices.data(), elements.data(), 0);
+            ray_bundle const* input = item->pending_rays.data();
+            size_t input_count = item->pending_rays.size();
+
+            bool leaf = true;
+
+            for (std::unique_ptr<bvh_node> &child_node
+                    : item->children) {
+                if (!child_node)
+                    continue;
+
+                leaf = false;
+
+                // Collide each camera ray against the node
+                bool queued = false;
+
+                for (size_t i = 0; i * vec_sz <
+                        input_count + vec_sz - 1; ++i) {
+                    ray_bundle const& rays = input[i];
+
+                    // Intersect all of the rays
+                    uint32_t intersect_mask =
+                        child_node->rays_intersect_slab(rays);
+
+                    // See if any rays intersect
+                    if (intersect_mask) {
+                        child_node->deposit_pending(
+                            rays, intersect_mask);
+                        if (!queued) {
+                            queued = true;
+                            todo.emplace_back(child_node.get());
+                        }
+                    }
+                }
+            }
+
+            if (leaf) {
+                for (auto element_nr : item->elements) {
+                    for (size_t i = 0; i * vec_sz <
+                            input_count + vec_sz - 1; ++i) {
+                        ray_bundle const& rays = input[i];
+                        apply_closer_intersection(rays,
+                            vertices.data(), elements.data(),
+                            element_nr);
+                    }
+                }
+            }
+
+            item->pending_rays.clear();
+            item->pending_count = 0;
+        }
+
+        size_t pixel_count = target.pitch * target.height;
+
+        for (size_t i = 0; i * vec_sz < pixel_count; ++i) {
+            size_t pixel_nr = i * vec_sz;
+            ray_best_match &best_bundle = best_matches[i];
+            collision_bundle &coll_bundle = collisions[i];
+
+            unsigned bitmask = vec_movemask(
+                best_bundle.best_element != -1U);
+            while (bitmask) {
+                int lane = ffs0(bitmask);
+                uint32_t element_nr = best_bundle.best_element[lane];
+
             }
         }
     }
 
+    std::vector<bvh_node*> todo;
     void *aligned_memory{};
     size_t aligned_memory_size{};
     size_t ray_count{};
-    ray_bundle * camera_rays{};
     ray_best_match * best_matches{};
     collision_bundle * collisions{};
 };

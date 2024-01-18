@@ -3,16 +3,10 @@
         {
             "name": "Linux",
             "includePath": [
-                "${default}"
+                "${workspaceFolder}/**",
+                "/usr/include/SDL2"
             ],
-            "cStandard": "c17",
-            "cppStandard": "c++17",
-            "intelliSenseMode": "linux-clang-x64",
-            "compilerPath": "/usr/bin/clang++",
-            "compilerArgs": [
-                "-stdlib=libc++",
-                "-rtlib=compiler-rt"
-            ]
+            "defines": ["HAVE_VEC256=1"]
         }
     ],
     "version": 4

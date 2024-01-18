@@ -2,30 +2,22 @@
     // See https://go.microsoft.com/fwlink/?LinkId=733558
     // for the documentation about the tasks.json format
     "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "build release",
-            "type": "shell",
-            "command": "clear && make -j -B",
-            "problemMatcher":"$gcc"
-        },
+    "tasks": [{
+        "label": "make test",
+        "type": "shell",
+        "command": "reset && make -Bj test-funrender DEBUG=1",
+        "problemMatcher": ["$gcc"]
+    },
         {
             "label": "build",
             "type": "shell",
-            "command": "clear && make DEBUG=1 -B -j",
-            "problemMatcher":"$gcc"
-        },
-        {
-            "label": "build debug",
+            "command": "reset && make -Bj DEBUG=1",
+            "problemMatcher": "$gcc"
+        },{
+            "label": "make release",
             "type": "shell",
-            "command": "clear && make DEBUG=1 -B -j",
-            "problemMatcher":"$gcc"
-        },
-        {
-            "label": "build sanitized",
-            "type": "shell",
-            "command": "clear && make DEBUG=1 SANITIZE=address -B -j",
-            "problemMatcher":"$gcc"
-        },
+            "command": "reset && make -B",
+            "problemMatcher": "$gcc"
+        }
     ]
 }
