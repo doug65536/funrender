@@ -1,4 +1,6 @@
 #pragma once
+
+#include <array>
 #include <utility>
 #include <cstdint>
 #include <climits>
@@ -6,13 +8,3717 @@
 #include <type_traits>
 
 #ifdef __x86_64__
+#include <immintrin.h>
+#include <emmintrin.h>
+#include <smmintrin.h>
 #include <xmmintrin.h>
 #endif
-#if defined(__AVX2__) || defined(__AVX512F__)
-#include <immintrin.h>
-#endif
+
 #ifdef __ARM_NEON
 #include <arm_neon.h>
+#endif
+
+#ifndef always_inline
+#define always_inline static inline __attribute__((__always_inline__))
+#define always_inline_method inline __attribute__((__always_inline__))
+#endif
+
+#include <initializer_list>
+
+template<typename C, size_t N>
+struct intrin_type {};
+
+#if defined(__ARM_NEON)
+template<> struct intrin_type<float, 4> { using type = floatx4_t; };
+template<> struct intrin_type<double, 2> { using type = doublex2_t; };
+template<> struct intrin_type<uint8_t, 16> { using type = uint8x16_t; };
+template<> struct intrin_type<uint16_t, 8> { using type = uint16x8_t; };
+template<> struct intrin_type<uint32_t, 4> { using type = uint32x4_t; };
+template<> struct intrin_type<uint64_t, 2> { using type = uint64x2_t; };
+template<> struct intrin_type<int8_t, 16> { using type = int8x16_t; };
+template<> struct intrin_type<int16_t, 8> { using type = int16x8_t; };
+template<> struct intrin_type<int32_t, 4> { using type = int32x4_t; };
+template<> struct intrin_type<int64_t, 2> { using type = int64x2_t; };
+#elif defined(__SSE2__)
+template<> struct intrin_type<float, 4> { using type = __m128; };
+template<> struct intrin_type<double, 2> { using type = __m128d; };
+template<> struct intrin_type<uint8_t, 16> { using type = __m128i; };
+template<> struct intrin_type<uint16_t, 8> { using type = __m128i; };
+template<> struct intrin_type<uint32_t, 4> { using type = __m128i; };
+template<> struct intrin_type<uint64_t, 2> { using type = __m128i; };
+template<> struct intrin_type<int8_t, 16> { using type = __m128i; };
+template<> struct intrin_type<int16_t, 8> { using type = __m128i; };
+template<> struct intrin_type<int32_t, 4> { using type = __m128i; };
+template<> struct intrin_type<int64_t, 2> { using type = __m128i; };
+#endif
+
+#if defined(__AVX2__)
+template<> struct intrin_type<float, 8> { using type = __m256; };
+template<> struct intrin_type<double, 4> { using type = __m256d; };
+template<> struct intrin_type<uint8_t, 32> { using type = __m256i; };
+template<> struct intrin_type<uint16_t, 16> { using type = __m256i; };
+template<> struct intrin_type<uint32_t, 8> { using type = __m256i; };
+template<> struct intrin_type<uint64_t, 4> { using type = __m256i; };
+template<> struct intrin_type<int8_t, 32> { using type = __m256i; };
+template<> struct intrin_type<int16_t, 16> { using type = __m256i; };
+template<> struct intrin_type<int32_t, 8> { using type = __m256i; };
+template<> struct intrin_type<int64_t, 4> { using type = __m256i; };
+#else
+template<> struct intrin_type<float, 8> { using type = std::array<intrin_type<float, 4>::type, 2>; };
+template<> struct intrin_type<double, 4> { using type = std::array<intrin_type<double, 2>::type, 2>; };
+template<> struct intrin_type<uint8_t, 32> { using type = std::array<intrin_type<uint8_t, 16>::type, 2>; };
+template<> struct intrin_type<uint16_t, 16> { using type = std::array<intrin_type<uint16_t, 8>::type, 2>; };
+template<> struct intrin_type<uint32_t, 8> { using type = std::array<intrin_type<uint32_t, 4>::type, 2>; };
+template<> struct intrin_type<uint64_t, 4> { using type = std::array<intrin_type<uint64_t, 2>::type, 2>; };
+template<> struct intrin_type<int8_t, 32> { using type = std::array<intrin_type<int8_t, 16>::type, 2>; };
+template<> struct intrin_type<int16_t, 16> { using type = std::array<intrin_type<int16_t, 8>::type, 2>; };
+template<> struct intrin_type<int32_t, 8> { using type = std::array<intrin_type<int32_t, 4>::type, 2>; };
+template<> struct intrin_type<int64_t, 4> { using type = std::array<intrin_type<int64_t, 2>::type, 2>; };
+#endif
+
+#if defined(__AVX512F__)
+template<> struct intrin_type<float, 16> { using type = __m512; };
+template<> struct intrin_type<double, 8> { using type = __m512d; };
+template<> struct intrin_type<uint8_t, 64> { using type = __m512i; };
+template<> struct intrin_type<uint16_t, 32> { using type = __m512i; };
+template<> struct intrin_type<uint32_t, 16> { using type = __m512i; };
+template<> struct intrin_type<uint64_t, 8> { using type = __m512i; };
+template<> struct intrin_type<int8_t, 64> { using type = __m512i; };
+template<> struct intrin_type<int16_t, 32> { using type = __m512i; };
+template<> struct intrin_type<int32_t, 16> { using type = __m512i; };
+template<> struct intrin_type<int64_t, 8> { using type = __m512i; };
+#else
+template<> struct intrin_type<float, 16> { using type = std::array<intrin_type<float, 8>::type, 2>; };
+template<> struct intrin_type<double, 8> { using type = std::array<intrin_type<double, 4>::type, 2>; };
+template<> struct intrin_type<uint8_t, 64> { using type = std::array<intrin_type<uint8_t, 32>::type, 2>; };
+template<> struct intrin_type<uint16_t, 32> { using type = std::array<intrin_type<uint16_t, 16>::type, 2>; };
+template<> struct intrin_type<uint32_t, 16> { using type = std::array<intrin_type<uint32_t, 8>::type, 2>; };
+template<> struct intrin_type<uint64_t, 8> { using type = std::array<intrin_type<uint64_t, 4>::type, 2>; };
+template<> struct intrin_type<int8_t, 64> { using type = std::array<intrin_type<int8_t, 32>::type, 2>; };
+template<> struct intrin_type<int16_t, 32> { using type = std::array<intrin_type<int16_t, 16>::type, 2>; };
+template<> struct intrin_type<int32_t, 16> { using type = std::array<intrin_type<int32_t, 8>::type, 2>; };
+template<> struct intrin_type<int64_t, 8> { using type = std::array<intrin_type<int64_t, 4>::type, 2>; };
+#endif
+
+template<typename C, size_t N>
+using intrin_type_t = typename intrin_type<C, N>::type;
+
+template<typename C, size_t N>
+class clsvec;
+
+//
+// 8-bit
+
+// 128-bit int8_t init
+always_inline void init(clsvec<int8_t, 16> *lhs,
+    int8_t v00, int8_t v01, int8_t v02, int8_t v03,
+    int8_t v04, int8_t v05, int8_t v06, int8_t v07,
+    int8_t v08, int8_t v09, int8_t v10, int8_t v11,
+    int8_t v12, int8_t v13, int8_t v14, int8_t v15);
+
+// 128-bit uint8_t
+always_inline void init(clsvec<uint8_t, 16> *lhs,
+    uint8_t v00, uint8_t v01, uint8_t v02, uint8_t v03,
+    uint8_t v04, uint8_t v05, uint8_t v06, uint8_t v07,
+    uint8_t v08, uint8_t v09, uint8_t v10, uint8_t v11,
+    uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15);
+
+// 256-bit int8_t
+always_inline void init(clsvec<int8_t, 32> *lhs,
+    int8_t v00, int8_t v01, int8_t v02, int8_t v03,
+    int8_t v04, int8_t v05, int8_t v06, int8_t v07,
+    int8_t v08, int8_t v09, int8_t v10, int8_t v11,
+    int8_t v12, int8_t v13, int8_t v14, int8_t v15,
+    int8_t v16, int8_t v17, int8_t v18, int8_t v19,
+    int8_t v20, int8_t v21, int8_t v22, int8_t v23,
+    int8_t v24, int8_t v25, int8_t v26, int8_t v27,
+    int8_t v28, int8_t v29, int8_t v30, int8_t v31);
+
+// 256-bit uint8_t
+always_inline void init(clsvec<uint8_t, 32> *lhs,
+   uint8_t v00, uint8_t v01, uint8_t v02, uint8_t v03,
+   uint8_t v04, uint8_t v05, uint8_t v06, uint8_t v07,
+   uint8_t v08, uint8_t v09, uint8_t v10, uint8_t v11,
+   uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15,
+   uint8_t v16, uint8_t v17, uint8_t v18, uint8_t v19,
+   uint8_t v20, uint8_t v21, uint8_t v22, uint8_t v23,
+   uint8_t v24, uint8_t v25, uint8_t v26, uint8_t v27,
+   uint8_t v28, uint8_t v29, uint8_t v30, uint8_t v31);
+
+#if defined(__AVX512F__)
+// 512-bit int8_t
+always_inline void init(clsvec<int8_t, 64> *lhs,
+   int8_t v00, int8_t v01, int8_t v02, int8_t v03,
+   int8_t v04, int8_t v05, int8_t v06, int8_t v07,
+   int8_t v08, int8_t v09, int8_t v10, int8_t v11,
+   int8_t v12, int8_t v13, int8_t v14, int8_t v15,
+   int8_t v16, int8_t v17, int8_t v18, int8_t v19,
+   int8_t v20, int8_t v21, int8_t v22, int8_t v23,
+   int8_t v24, int8_t v25, int8_t v26, int8_t v27,
+   int8_t v28, int8_t v29, int8_t v30, int8_t v31,
+   int8_t v32, int8_t v33, int8_t v34, int8_t v35,
+   int8_t v36, int8_t v37, int8_t v38, int8_t v39,
+   int8_t v40, int8_t v41, int8_t v42, int8_t v43,
+   int8_t v44, int8_t v45, int8_t v46, int8_t v47,
+   int8_t v48, int8_t v49, int8_t v50, int8_t v51,
+   int8_t v52, int8_t v53, int8_t v54, int8_t v55,
+   int8_t v56, int8_t v57, int8_t v58, int8_t v59,
+   int8_t v60, int8_t v61, int8_t v62, int8_t v63);
+
+// 512-bit uint8_t
+always_inline void init(clsvec<uint8_t, 64> *lhs,
+   uint8_t v00, uint8_t v01, uint8_t v02, uint8_t v03,
+   uint8_t v04, uint8_t v05, uint8_t v06, uint8_t v07,
+   uint8_t v08, uint8_t v09, uint8_t v10, uint8_t v11,
+   uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15,
+   uint8_t v16, uint8_t v17, uint8_t v18, uint8_t v19,
+   uint8_t v20, uint8_t v21, uint8_t v22, uint8_t v23,
+   uint8_t v24, uint8_t v25, uint8_t v26, uint8_t v27,
+   uint8_t v28, uint8_t v29, uint8_t v30, uint8_t v31,
+   uint8_t v32, uint8_t v33, uint8_t v34, uint8_t v35,
+   uint8_t v36, uint8_t v37, uint8_t v38, uint8_t v39,
+   uint8_t v40, uint8_t v41, uint8_t v42, uint8_t v43,
+   uint8_t v44, uint8_t v45, uint8_t v46, uint8_t v47,
+   uint8_t v48, uint8_t v49, uint8_t v50, uint8_t v51,
+   uint8_t v52, uint8_t v53, uint8_t v54, uint8_t v55,
+   uint8_t v56, uint8_t v57, uint8_t v58, uint8_t v59,
+   uint8_t v60, uint8_t v61, uint8_t v62, uint8_t v63);
+#endif
+
+//
+// 16-bit
+
+// 128-bit int16_t
+always_inline void init(clsvec<int16_t, 8> *lhs,
+    int16_t v00, int16_t v01, int16_t v02, int16_t v03,
+    int16_t v04, int16_t v05, int16_t v06, int16_t v07);
+
+// 128-bit uint16_t
+always_inline void init(clsvec<uint16_t, 8> *lhs,
+    uint16_t v00, uint16_t v01, uint16_t v02, uint16_t v03,
+    uint16_t v04, uint16_t v05, uint16_t v06, uint16_t v07);
+
+// 256-bit int16_t
+always_inline void init(clsvec<int16_t, 16> *lhs,
+    int16_t v00, int16_t v01, int16_t v02, int16_t v03,
+    int16_t v04, int16_t v05, int16_t v06, int16_t v07,
+    int16_t v08, int16_t v09, int16_t v10, int16_t v11,
+    int16_t v12, int16_t v13, int16_t v14, int16_t v15);
+
+// 256-bit uint16_t
+always_inline void init(clsvec<uint16_t, 16> *lhs,
+   uint16_t v00, uint16_t v01, uint16_t v02, uint16_t v03,
+   uint16_t v04, uint16_t v05, uint16_t v06, uint16_t v07,
+   uint16_t v08, uint16_t v09, uint16_t v10, uint16_t v11,
+   uint16_t v12, uint16_t v13, uint16_t v14, uint16_t v15);
+
+// 512-bit int16_t
+always_inline void init(clsvec<int16_t, 32> *lhs,
+   int16_t v00, int16_t v01, int16_t v02, int16_t v03,
+   int16_t v04, int16_t v05, int16_t v06, int16_t v07,
+   int16_t v08, int16_t v09, int16_t v10, int16_t v11,
+   int16_t v12, int16_t v13, int16_t v14, int16_t v15,
+   int16_t v16, int16_t v17, int16_t v18, int16_t v19,
+   int16_t v20, int16_t v21, int16_t v22, int16_t v23,
+   int16_t v24, int16_t v25, int16_t v26, int16_t v27,
+   int16_t v28, int16_t v29, int16_t v30, int16_t v31);
+
+// 512-bit uint16_t
+always_inline void init(clsvec<uint16_t, 32> *lhs,
+   uint16_t v00, uint16_t v01, uint16_t v02, uint16_t v03,
+   uint16_t v04, uint16_t v05, uint16_t v06, uint16_t v07,
+   uint16_t v08, uint16_t v09, uint16_t v10, uint16_t v11,
+   uint16_t v12, uint16_t v13, uint16_t v14, uint16_t v15,
+   uint16_t v16, uint16_t v17, uint16_t v18, uint16_t v19,
+   uint16_t v20, uint16_t v21, uint16_t v22, uint16_t v23,
+   uint16_t v24, uint16_t v25, uint16_t v26, uint16_t v27,
+   uint16_t v28, uint16_t v29, uint16_t v30, uint16_t v31,
+   uint16_t v32, uint16_t v33, uint16_t v34, uint16_t v35,
+   uint16_t v36, uint16_t v37, uint16_t v38, uint16_t v39,
+   uint16_t v40, uint16_t v41, uint16_t v42, uint16_t v43,
+   uint16_t v44, uint16_t v45, uint16_t v46, uint16_t v47,
+   uint16_t v48, uint16_t v49, uint16_t v50, uint16_t v51,
+   uint16_t v52, uint16_t v53, uint16_t v54, uint16_t v55,
+   uint16_t v56, uint16_t v57, uint16_t v58, uint16_t v59,
+   uint16_t v60, uint16_t v61, uint16_t v62, uint16_t v63);
+
+//
+// 32-bit
+
+// 128-bit int32_t
+always_inline void init(clsvec<int32_t, 4> *lhs,
+    int32_t v00, int32_t v01, int32_t v02, int32_t v03);
+
+// 128-bit uint32_t
+always_inline void init(clsvec<uint32_t, 4> *lhs,
+    uint32_t v00, uint32_t v01, uint32_t v02, uint32_t v03);
+
+#if defined(__AVX2__)
+// 256-bit int32_t
+always_inline void init(clsvec<int32_t, 8> *lhs,
+    int32_t v00, int32_t v01, int32_t v02, int32_t v03,
+    int32_t v04, int32_t v05, int32_t v06, int32_t v07);
+
+// 256-bit uint32_t
+always_inline void init(clsvec<uint32_t, 8> *lhs,
+   uint32_t v00, uint32_t v01, uint32_t v02, uint32_t v03,
+   uint32_t v04, uint32_t v05, uint32_t v06, uint32_t v07);
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int32_t
+always_inline void init(clsvec<int32_t, 16> *lhs,
+   int32_t v00, int32_t v01, int32_t v02, int32_t v03,
+   int32_t v04, int32_t v05, int32_t v06, int32_t v07,
+   int32_t v08, int32_t v09, int32_t v10, int32_t v11,
+   int32_t v12, int32_t v13, int32_t v14, int32_t v15);
+
+// 512-bit uint32_t
+always_inline void init(clsvec<uint32_t, 16> *lhs,
+   uint32_t v00, uint32_t v01, uint32_t v02, uint32_t v03,
+   uint32_t v04, uint32_t v05, uint32_t v06, uint32_t v07,
+   uint32_t v08, uint32_t v09, uint32_t v10, uint32_t v11,
+   uint32_t v12, uint32_t v13, uint32_t v14, uint32_t v15);
+#endif
+
+// 128-bit float
+always_inline void init(clsvec<float, 4> *lhs,
+   float v00, float v01, float v02, float v03);
+
+#if defined(__AVX2__)
+// 256-bit float
+always_inline void init(clsvec<float, 8> *lhs,
+   float v00, float v01, float v02, float v03,
+   float v04, float v05, float v06, float v07);
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit float
+always_inline void init(clsvec<float, 16> *lhs,
+   float v00, float v01, float v02, float v03,
+   float v04, float v05, float v06, float v07,
+   float v08, float v09, float v10, float v11,
+   float v12, float v13, float v14, float v15);
+#endif
+
+//
+// 64-bit
+
+// 128-bit int64_t
+always_inline void init(clsvec<int64_t, 2> *lhs,
+    int64_t v00, int64_t v01);
+
+// 128-bit uint64_t
+always_inline void init(clsvec<uint64_t, 2> *lhs,
+    uint64_t v00, uint64_t v01);
+
+// 256-bit int64_t
+always_inline void init(clsvec<int64_t, 4> *lhs,
+    int64_t v00, int64_t v01, int64_t v02, int64_t v03);
+
+// 256-bit uint64_t
+always_inline void init(clsvec<uint64_t, 4> *lhs,
+   uint64_t v00, uint64_t v01, uint64_t v02, uint64_t v03);
+
+// 512-bit int64_t
+always_inline void init(clsvec<int64_t, 8> *lhs,
+   int64_t v00, int64_t v01, int64_t v02, int64_t v03,
+   int64_t v04, int64_t v05, int64_t v06, int64_t v07);
+
+// 512-bit uint64_t
+always_inline void init(clsvec<uint64_t, 8> *lhs,
+   uint64_t v00, uint64_t v01, uint64_t v02, uint64_t v03,
+   uint64_t v04, uint64_t v05, uint64_t v06, uint64_t v07);
+
+// 128-bit double
+always_inline void init(clsvec<double, 2> *lhs,
+   double v00, double v01);
+
+// 256-bit double
+always_inline void init(clsvec<double, 4> *lhs,
+   double v00, double v01, double v02, double v03);
+
+// 512-bit double
+always_inline void init(clsvec<double, 8> *lhs,
+   double v00, double v01, double v02, double v03,
+   double v04, double v05, double v06, double v07);
+
+//
+// Broadcasts
+
+always_inline void init(clsvec<int8_t, 16> *lhs, int8_t scalar);
+always_inline void init(clsvec<int8_t, 32> *lhs, int8_t scalar);
+always_inline void init(clsvec<int8_t, 64> *lhs, int8_t scalar);
+
+always_inline void init(clsvec<uint8_t, 16> *lhs, uint8_t scalar);
+always_inline void init(clsvec<uint8_t, 32> *lhs, uint8_t scalar);
+always_inline void init(clsvec<uint8_t, 64> *lhs, uint8_t scalar);
+
+always_inline void init(clsvec<int16_t, 8> *lhs, int16_t scalar);
+always_inline void init(clsvec<int16_t, 16> *lhs, int16_t scalar);
+always_inline void init(clsvec<int16_t, 32> *lhs, int16_t scalar);
+
+always_inline void init(clsvec<uint16_t, 8> *lhs, uint16_t scalar);
+always_inline void init(clsvec<uint16_t, 16> *lhs, uint16_t scalar);
+always_inline void init(clsvec<uint16_t, 32> *lhs, uint16_t scalar);
+
+always_inline void init(clsvec<int32_t, 4> *lhs, int32_t scalar);
+always_inline void init(clsvec<int32_t, 8> *lhs, int32_t scalar);
+always_inline void init(clsvec<int32_t, 16> *lhs, int32_t scalar);
+
+always_inline void init(clsvec<uint32_t, 4> *lhs, uint32_t scalar);
+always_inline void init(clsvec<uint32_t, 8> *lhs, uint32_t scalar);
+always_inline void init(clsvec<uint32_t, 16> *lhs, uint32_t scalar);
+
+always_inline void init(clsvec<float, 4> *lhs, float scalar);
+always_inline void init(clsvec<float, 8> *lhs, float scalar);
+always_inline void init(clsvec<float, 16> *lhs, float scalar);
+
+always_inline void init(clsvec<int64_t, 2> *lhs, int64_t scalar);
+always_inline void init(clsvec<int64_t, 4> *lhs, int64_t scalar);
+always_inline void init(clsvec<int64_t, 8> *lhs, int64_t scalar);
+
+always_inline void init(clsvec<uint64_t, 2> *lhs, uint64_t scalar);
+always_inline void init(clsvec<uint64_t, 4> *lhs, uint64_t scalar);
+always_inline void init(clsvec<uint64_t, 8> *lhs, uint64_t scalar);
+
+always_inline void init(clsvec<double, 2> *lhs, double scalar);
+always_inline void init(clsvec<double, 4> *lhs, double scalar);
+always_inline void init(clsvec<double, 8> *lhs, double scalar);
+
+// 128-bit int8_t add
+always_inline void add(clsvec<int8_t, 16> const *lhs,
+    intrin_type_t<int8_t, 16> const& rhs,
+    intrin_type_t<int8_t, 16>& res);
+
+// 256-bit int8_t
+always_inline void add(clsvec<int8_t, 32> const *lhs,
+    intrin_type_t<int8_t, 32> const& rhs,
+    intrin_type_t<int8_t, 32>& res);
+
+// 512-bit int8_t
+always_inline void add(clsvec<int8_t, 64> const *lhs,
+    intrin_type_t<int8_t, 64> const& rhs,
+    intrin_type_t<int8_t, 64>& res);
+
+// 128-bit uint8_t
+always_inline void add(clsvec<uint8_t, 16> const *lhs,
+    intrin_type_t<uint8_t, 16> const& rhs,
+    intrin_type_t<uint8_t, 16>& res);
+
+// 256-bit uint8_t
+always_inline void add(clsvec<uint8_t, 32> const *lhs,
+    intrin_type_t<uint8_t, 32> const& rhs,
+    intrin_type_t<uint8_t, 32>& res);
+
+// 512-bit uint8_t
+always_inline void add(clsvec<uint8_t, 64> const *lhs,
+    intrin_type_t<uint8_t, 64> const& rhs,
+    intrin_type_t<uint8_t, 64>& res);
+
+// 128-bit int16_t
+always_inline void add(clsvec<int16_t, 8> const *lhs,
+    intrin_type_t<int16_t, 8> const& rhs,
+    intrin_type_t<int16_t, 8>& res);
+
+// 256-bit int16_t
+always_inline void add(clsvec<int16_t, 16> const *lhs,
+    intrin_type_t<int16_t, 16> const& rhs,
+    intrin_type_t<int16_t, 16>& res);
+
+// 512-bit int16_t
+always_inline void add(clsvec<int16_t, 32> const *lhs,
+    intrin_type_t<int16_t, 32> const& rhs,
+    intrin_type_t<int16_t, 32>& res);
+
+// 128-bit int16_t
+always_inline void add(clsvec<uint16_t, 8> const *lhs,
+    intrin_type_t<uint16_t, 8> const& rhs,
+    intrin_type_t<uint16_t, 8>& res);
+
+// 256-bit int16_t
+always_inline void add(clsvec<uint16_t, 16> const *lhs,
+    intrin_type_t<uint16_t, 16> const& rhs,
+    intrin_type_t<uint16_t, 16>& res);
+
+// 512-bit uint16_t
+always_inline void add(clsvec<uint16_t, 32> const *lhs,
+    intrin_type_t<uint16_t, 32> const& rhs,
+    intrin_type_t<uint16_t, 32>& res);
+
+// 128-bit int32_t
+always_inline void add(clsvec<int32_t, 4> const *lhs,
+    intrin_type_t<int32_t, 4> const& rhs,
+    intrin_type_t<int32_t, 4>& res);
+
+// 256-bit int32_t
+always_inline void add(clsvec<int32_t, 8> const *lhs,
+    intrin_type_t<int32_t, 8> const& rhs,
+    intrin_type_t<int32_t, 8>& res);
+
+// 512-bit int32_t
+always_inline void add(clsvec<int32_t, 16> const *lhs,
+    intrin_type_t<int32_t, 16> const& rhs,
+    intrin_type_t<int32_t, 16>& res);
+
+// 128-bit uint32_t
+always_inline void add(clsvec<uint32_t, 4> const *lhs,
+    intrin_type_t<uint32_t, 4> const& rhs,
+    intrin_type_t<uint32_t, 4>& res);
+
+// 256-bit uint32_t
+always_inline void add(clsvec<uint32_t, 8> const *lhs,
+    intrin_type_t<uint32_t, 8> const& rhs,
+    intrin_type_t<uint32_t, 8>& res);
+
+// 512-bit uint32_t
+always_inline void add(clsvec<uint32_t, 16> const *lhs,
+    intrin_type_t<uint32_t, 16> const& rhs,
+    intrin_type_t<uint32_t, 16>& res);
+
+// 128-bit float
+always_inline void add(clsvec<float, 4> const *lhs,
+    intrin_type_t<float, 4> const& rhs,
+    intrin_type_t<float, 4>& res);
+
+// 256-bit float
+always_inline void add(clsvec<float, 8> const *lhs,
+    intrin_type_t<float, 8> const& rhs,
+    intrin_type_t<float, 8>& res);
+
+// 512-bit float
+always_inline void add(clsvec<float, 16> const *lhs,
+    intrin_type_t<float, 16> const& rhs,
+    intrin_type_t<float, 16>& res);
+
+// 128-bit int64_t
+always_inline void add(clsvec<int64_t, 2> const *lhs,
+    intrin_type_t<int64_t, 2> const& rhs,
+    intrin_type_t<int64_t, 2>& res);
+
+// 256-bit int64_t
+always_inline void add(clsvec<int64_t, 4> const *lhs,
+    intrin_type_t<int64_t, 4> const& rhs,
+    intrin_type_t<int64_t, 4>& res);
+
+// 512-bit int64_t
+always_inline void add(clsvec<int64_t, 8> const *lhs,
+    intrin_type_t<int64_t, 8> const& rhs,
+    intrin_type_t<int64_t, 8>& res);
+
+// 128-bit uint64_t
+always_inline void add(clsvec<uint64_t, 2> const *lhs,
+    intrin_type_t<uint64_t, 2> const& rhs,
+    intrin_type_t<uint64_t, 2>& res);
+
+// 256-bit uint64_t
+always_inline void add(clsvec<uint64_t, 4> const *lhs,
+    intrin_type_t<uint64_t, 4> const& rhs,
+    intrin_type_t<uint64_t, 4>& res);
+
+// 512-bit uint64_t
+always_inline void add(clsvec<uint64_t, 8> const *lhs,
+    intrin_type_t<uint64_t, 8> const& rhs,
+    intrin_type_t<uint64_t, 8>& res);
+
+// 128-bit double
+always_inline void add(clsvec<double, 2> const *lhs,
+    intrin_type_t<double, 2> const& rhs,
+    intrin_type_t<double, 2>& res);
+
+// 256-bit double
+always_inline void add(clsvec<double, 4> const *lhs,
+    intrin_type_t<double, 4> const& rhs,
+    intrin_type_t<double, 4>& res);
+
+// 512-bit double
+always_inline void add(clsvec<double, 8> const *lhs,
+    intrin_type_t<double, 8> const& rhs,
+    intrin_type_t<double, 8>& res);
+
+// 128-bit int8_t sub
+always_inline void sub(clsvec<int8_t, 16> const *lhs,
+    intrin_type_t<int8_t, 16> const& rhs,
+    intrin_type_t<int8_t, 16>& res);
+
+// 256-bit int8_t
+always_inline void sub(clsvec<int8_t, 32> const *lhs,
+    intrin_type_t<int8_t, 32> const& rhs,
+    intrin_type_t<int8_t, 32>& res);
+
+// 512-bit int8_t
+always_inline void sub(clsvec<int8_t, 64> const *lhs,
+    intrin_type_t<int8_t, 64> const& rhs,
+    intrin_type_t<int8_t, 64>& res);
+
+// 128-bit uint8_t
+always_inline void sub(clsvec<uint8_t, 16> const *lhs,
+    intrin_type_t<uint8_t, 16> const& rhs,
+    intrin_type_t<uint8_t, 16>& res);
+
+// 256-bit uint8_t
+always_inline void sub(clsvec<uint8_t, 32> const *lhs,
+    intrin_type_t<uint8_t, 32> const& rhs,
+    intrin_type_t<uint8_t, 32>& res);
+
+// 512-bit uint8_t
+always_inline void sub(clsvec<uint8_t, 64> const *lhs,
+    intrin_type_t<uint8_t, 64> const& rhs,
+    intrin_type_t<uint8_t, 64>& res);
+
+// 128-bit int16_t
+always_inline void sub(clsvec<int16_t, 8> const *lhs,
+    intrin_type_t<int16_t, 8> const& rhs,
+    intrin_type_t<int16_t, 8>& res);
+
+// 256-bit int16_t
+always_inline void sub(clsvec<int16_t, 16> const *lhs,
+    intrin_type_t<int16_t, 16> const& rhs,
+    intrin_type_t<int16_t, 16>& res);
+
+// 512-bit int16_t
+always_inline void sub(clsvec<int16_t, 32> const *lhs,
+    intrin_type_t<int16_t, 32> const& rhs,
+    intrin_type_t<int16_t, 32>& res);
+
+// 128-bit uint16_t
+always_inline void sub(clsvec<uint16_t, 8> const *lhs,
+    intrin_type_t<uint16_t, 8> const& rhs,
+    intrin_type_t<uint16_t, 8>& res);
+
+// 256-bit uint16_t
+always_inline void sub(clsvec<uint16_t, 16> const *lhs,
+    intrin_type_t<uint16_t, 16> const& rhs,
+    intrin_type_t<uint16_t, 16>& res);
+
+// 512-bit uint16_t
+always_inline void sub(clsvec<uint16_t, 32> const *lhs,
+    intrin_type_t<uint16_t, 32> const& rhs,
+    intrin_type_t<uint16_t, 32>& res);
+
+// 128-bit int32_t
+always_inline void sub(clsvec<int32_t, 4> const *lhs,
+    intrin_type_t<int32_t, 4> const& rhs,
+    intrin_type_t<int32_t, 4>& res);
+
+// 256-bit int32_t
+always_inline void sub(clsvec<int32_t, 8> const *lhs,
+    intrin_type_t<int32_t, 8> const& rhs,
+    intrin_type_t<int32_t, 8>& res);
+
+// 512-bit int32_t
+always_inline void sub(clsvec<int32_t, 16> const *lhs,
+    intrin_type_t<int32_t, 16> const& rhs,
+    intrin_type_t<int32_t, 16>& res);
+
+// 128-bit uint32_t
+always_inline void sub(clsvec<uint32_t, 4> const *lhs,
+    intrin_type_t<uint32_t, 4> const& rhs,
+    intrin_type_t<uint32_t, 4>& res);
+
+// 256-bit uint32_t
+always_inline void sub(clsvec<uint32_t, 8> const *lhs,
+    intrin_type_t<uint32_t, 8> const& rhs,
+    intrin_type_t<uint32_t, 8>& res);
+
+// 512-bit uint32_t
+always_inline void sub(clsvec<uint32_t, 16> const *lhs,
+    intrin_type_t<uint32_t, 16> const& rhs,
+    intrin_type_t<uint32_t, 16>& res);
+
+// 128-bit float
+always_inline void sub(clsvec<float, 4> const *lhs,
+    intrin_type_t<float, 4> const& rhs,
+    intrin_type_t<float, 4>& res);
+
+// 256-bit float
+always_inline void sub(clsvec<float, 8> const *lhs,
+    intrin_type_t<float, 8> const& rhs,
+    intrin_type_t<float, 8>& res);
+
+// 512-bit float
+always_inline void sub(clsvec<float, 16> const *lhs,
+    intrin_type_t<float, 16> const& rhs,
+    intrin_type_t<float, 16>& res);
+
+// 128-bit int64_t
+always_inline void sub(clsvec<int64_t, 2> const *lhs,
+    intrin_type_t<int64_t, 2> const& rhs,
+    intrin_type_t<int64_t, 2>& res);
+
+// 256-bit int64_t
+always_inline void sub(clsvec<int64_t, 4> const *lhs,
+    intrin_type_t<int64_t, 4> const& rhs,
+    intrin_type_t<int64_t, 4>& res);
+
+// 512-bit int64_t
+always_inline void sub(clsvec<int64_t, 8> const *lhs,
+    intrin_type_t<int64_t, 8> const& rhs,
+    intrin_type_t<int64_t, 8>& res);
+
+// 128-bit uint64_t
+always_inline void sub(clsvec<uint64_t, 2> const *lhs,
+    intrin_type_t<uint64_t, 2> const& rhs,
+    intrin_type_t<uint64_t, 2>& res);
+
+// 256-bit uint64_t
+always_inline void sub(clsvec<uint64_t, 4> const *lhs,
+    intrin_type_t<uint64_t, 4> const& rhs,
+    intrin_type_t<uint64_t, 4>& res);
+
+// 512-bit uint64_t
+always_inline void sub(clsvec<uint64_t, 8> const *lhs,
+    intrin_type_t<uint64_t, 8> const& rhs,
+    intrin_type_t<uint64_t, 8>& res);
+
+// 128-bit double
+always_inline void sub(clsvec<double, 2> const *lhs,
+    intrin_type_t<double, 2> const& rhs,
+    intrin_type_t<double, 2>& res);
+
+// 256-bit double
+always_inline void sub(clsvec<double, 4> const *lhs,
+    intrin_type_t<double, 4> const& rhs,
+    intrin_type_t<double, 4>& res);
+
+// 512-bit double
+always_inline void sub(clsvec<double, 8> const *lhs,
+    intrin_type_t<double, 8> const& rhs,
+    intrin_type_t<double, 8>& res);
+
+// 128-bit int8_t mul
+always_inline void mul(clsvec<int8_t, 16> const *lhs,
+    intrin_type_t<int8_t, 16> const& rhs,
+    intrin_type_t<int8_t, 16>& res);
+
+// 256-bit int8_t
+always_inline void mul(clsvec<int8_t, 32> const *lhs,
+    intrin_type_t<int8_t, 32> const& rhs,
+    intrin_type_t<int8_t, 32>& res);
+
+// 512-bit int8_t
+always_inline void mul(clsvec<int8_t, 64> const *lhs,
+    intrin_type_t<int8_t, 64> const& rhs,
+    intrin_type_t<int8_t, 64>& res);
+
+// 128-bit uint8_t
+always_inline void mul(clsvec<uint8_t, 16> const *lhs,
+    intrin_type_t<uint8_t, 16> const& rhs,
+    intrin_type_t<uint8_t, 16>& res);
+
+// 256-bit uint8_t
+always_inline void mul(clsvec<uint8_t, 32> const *lhs,
+    intrin_type_t<uint8_t, 32> const& rhs,
+    intrin_type_t<uint8_t, 32>& res);
+
+// 512-bit uint8_t
+always_inline void mul(clsvec<uint8_t, 64> const *lhs,
+    intrin_type_t<uint8_t, 64> const& rhs,
+    intrin_type_t<uint8_t, 64>& res);
+
+// 128-bit int16_t
+always_inline void mul(clsvec<int16_t, 8> const *lhs,
+    intrin_type_t<int16_t, 8> const& rhs,
+    intrin_type_t<int16_t, 8>& res);
+
+// 256-bit int16_t
+always_inline void mul(clsvec<int16_t, 16> const *lhs,
+    intrin_type_t<int16_t, 16> const& rhs,
+    intrin_type_t<int16_t, 16>& res);
+
+// 512-bit int16_t
+always_inline void mul(clsvec<int16_t, 32> const *lhs,
+    intrin_type_t<int16_t, 32> const& rhs,
+    intrin_type_t<int16_t, 32>& res);
+
+// 128-bit uint16_t
+always_inline void mul(clsvec<uint16_t, 8> const *lhs,
+    intrin_type_t<uint16_t, 8> const& rhs,
+    intrin_type_t<uint16_t, 8>& res);
+
+// 256-bit uint16_t
+always_inline void mul(clsvec<uint16_t, 16> const *lhs,
+    intrin_type_t<uint16_t, 16> const& rhs,
+    intrin_type_t<uint16_t, 16>& res);
+
+// 512-bit uint16_t
+always_inline void mul(clsvec<uint16_t, 32> const *lhs,
+    intrin_type_t<uint16_t, 32> const& rhs,
+    intrin_type_t<uint16_t, 32>& res);
+
+// 128-bit int32_t
+always_inline void mul(clsvec<int32_t, 4> const *lhs,
+    intrin_type_t<int32_t, 4> const& rhs,
+    intrin_type_t<int32_t, 4>& res);
+
+// 256-bit int32_t
+always_inline void mul(clsvec<int32_t, 8> const *lhs,
+    intrin_type_t<int32_t, 8> const& rhs,
+    intrin_type_t<int32_t, 8>& res);
+
+// 512-bit int32_t
+always_inline void mul(clsvec<int32_t, 16> const *lhs,
+    intrin_type_t<int32_t, 16> const& rhs,
+    intrin_type_t<int32_t, 16>& res);
+
+// 128-bit uint32_t
+always_inline void mul(clsvec<uint32_t, 4> const *lhs,
+    intrin_type_t<uint32_t, 4> const& rhs,
+    intrin_type_t<uint32_t, 4>& res);
+
+// 256-bit uint32_t
+always_inline void mul(clsvec<uint32_t, 8> const *lhs,
+    intrin_type_t<uint32_t, 8> const& rhs,
+    intrin_type_t<uint32_t, 8>& res);
+
+// 512-bit uint32_t
+always_inline void mul(clsvec<uint32_t, 16> const *lhs,
+    intrin_type_t<uint32_t, 16> const& rhs,
+    intrin_type_t<uint32_t, 16>& res);
+
+// 128-bit float
+always_inline void mul(clsvec<float, 4> const *lhs,
+    intrin_type_t<float, 4> const& rhs,
+    intrin_type_t<float, 4>& res);
+
+// 256-bit float
+always_inline void mul(clsvec<float, 8> const *lhs,
+    intrin_type_t<float, 8> const& rhs,
+    intrin_type_t<float, 8>& res);
+
+// 512-bit float
+always_inline void mul(clsvec<float, 16> const *lhs,
+    intrin_type_t<float, 16> const& rhs,
+    intrin_type_t<float, 16>& res);
+
+// 128-bit int64_t
+always_inline void mul(clsvec<int64_t, 2> const *lhs,
+    intrin_type_t<int64_t, 2> const& rhs,
+    intrin_type_t<int64_t, 2>& res);
+
+// 256-bit int64_t
+always_inline void mul(clsvec<int64_t, 4> const *lhs,
+    intrin_type_t<int64_t, 4> const& rhs,
+    intrin_type_t<int64_t, 4>& res);
+
+// 512-bit int64_t
+always_inline void mul(clsvec<int64_t, 8> const *lhs,
+    intrin_type_t<int64_t, 8> const& rhs,
+    intrin_type_t<int64_t, 8>& res);
+
+// 128-bit uint64_t
+always_inline void mul(clsvec<uint64_t, 2> const *lhs,
+    intrin_type_t<uint64_t, 2> const& rhs,
+    intrin_type_t<uint64_t, 2>& res);
+
+// 256-bit uint64_t
+always_inline void mul(clsvec<uint64_t, 4> const *lhs,
+    intrin_type_t<uint64_t, 4> const& rhs,
+    intrin_type_t<uint64_t, 4>& res);
+
+// 512-bit uint64_t
+always_inline void mul(clsvec<uint64_t, 8> const *lhs,
+    intrin_type_t<uint64_t, 8> const& rhs,
+    intrin_type_t<uint64_t, 8>& res);
+
+// 128-bit double
+always_inline void mul(clsvec<double, 2> const *lhs,
+    intrin_type_t<double, 2> const& rhs,
+    intrin_type_t<double, 2>& res);
+
+// 256-bit double
+always_inline void mul(clsvec<double, 4> const *lhs,
+    intrin_type_t<double, 4> const& rhs,
+    intrin_type_t<double, 4>& res);
+
+// 512-bit double
+always_inline void mul(clsvec<double, 8> const *lhs,
+    intrin_type_t<double, 8> const& rhs,
+    intrin_type_t<double, 8>& res);
+
+// 128-bit int8_t div
+always_inline void div(clsvec<int8_t, 16> const *lhs,
+    intrin_type_t<int8_t, 16> const& rhs,
+    intrin_type_t<int8_t, 16>& res);
+
+// 256-bit int8_t
+always_inline void div(clsvec<int8_t, 32> const *lhs,
+    intrin_type_t<int8_t, 32> const& rhs,
+    intrin_type_t<int8_t, 32>& res);
+
+// 512-bit int8_t
+always_inline void div(clsvec<int8_t, 64> const *lhs,
+    intrin_type_t<int8_t, 64> const& rhs,
+    intrin_type_t<int8_t, 64>& res);
+
+// 128-bit uint8_t
+always_inline void div(clsvec<uint8_t, 16> const *lhs,
+    intrin_type_t<uint8_t, 16> const& rhs,
+    intrin_type_t<uint8_t, 16>& res);
+
+// 256-bit uint8_t
+always_inline void div(clsvec<uint8_t, 32> const *lhs,
+    intrin_type_t<uint8_t, 32> const& rhs,
+    intrin_type_t<uint8_t, 32>& res);
+
+// 512-bit uint8_t
+always_inline void div(clsvec<uint8_t, 64> const *lhs,
+    intrin_type_t<uint8_t, 64> const& rhs,
+    intrin_type_t<uint8_t, 64>& res);
+
+// 128-bit int16_t
+always_inline void div(clsvec<int16_t, 8> const *lhs,
+    intrin_type_t<int16_t, 8> const& rhs,
+    intrin_type_t<int16_t, 8>& res);
+
+// 256-bit int16_t
+always_inline void div(clsvec<int16_t, 16> const *lhs,
+    intrin_type_t<int16_t, 16> const& rhs,
+    intrin_type_t<int16_t, 16>& res);
+
+// 512-bit int16_t
+always_inline void div(clsvec<int16_t, 32> const *lhs,
+    intrin_type_t<int16_t, 32> const& rhs,
+    intrin_type_t<int16_t, 32>& res);
+
+// 128-bit uint16_t
+always_inline void div(clsvec<uint16_t, 8> const *lhs,
+    intrin_type_t<uint16_t, 8> const& rhs,
+    intrin_type_t<uint16_t, 8>& res);
+
+// 256-bit uint16_t
+always_inline void div(clsvec<uint16_t, 16> const *lhs,
+    intrin_type_t<uint16_t, 16> const& rhs,
+    intrin_type_t<uint16_t, 16>& res);
+
+// 512-bit uint16_t
+always_inline void div(clsvec<uint16_t, 32> const *lhs,
+    intrin_type_t<uint16_t, 32> const& rhs,
+    intrin_type_t<uint16_t, 32>& res);
+
+// 128-bit int32_t
+always_inline void div(clsvec<int32_t, 4> const *lhs,
+    intrin_type_t<int32_t, 4> const& rhs,
+    intrin_type_t<int32_t, 4>& res);
+
+// 256-bit int32_t
+always_inline void div(clsvec<int32_t, 8> const *lhs,
+    intrin_type_t<int32_t, 8> const& rhs,
+    intrin_type_t<int32_t, 8>& res);
+
+// 512-bit int32_t
+always_inline void div(clsvec<int32_t, 16> const *lhs,
+    intrin_type_t<int32_t, 16> const& rhs,
+    intrin_type_t<int32_t, 16>& res);
+
+// 128-bit uint32_t
+always_inline void div(clsvec<uint32_t, 4> const *lhs,
+    intrin_type_t<uint32_t, 4> const& rhs,
+    intrin_type_t<uint32_t, 4>& res);
+
+// 256-bit uint32_t
+always_inline void div(clsvec<uint32_t, 8> const *lhs,
+    intrin_type_t<uint32_t, 8> const& rhs,
+    intrin_type_t<uint32_t, 8>& res);
+
+// 512-bit uint32_t
+always_inline void div(clsvec<uint32_t, 16> const *lhs,
+    intrin_type_t<uint32_t, 16> const& rhs,
+    intrin_type_t<uint32_t, 16>& res);
+
+// 128-bit float
+always_inline void div(clsvec<float, 4> const *lhs,
+    intrin_type_t<float, 4> const& rhs,
+    intrin_type_t<float, 4>& res);
+
+// 256-bit float
+always_inline void div(clsvec<float, 8> const *lhs,
+    intrin_type_t<float, 8> const& rhs,
+    intrin_type_t<float, 8>& res);
+
+// 512-bit float
+always_inline void div(clsvec<float, 16> const *lhs,
+    intrin_type_t<float, 16> const& rhs,
+    intrin_type_t<float, 16>& res);
+
+// 128-bit int64_t
+always_inline void div(clsvec<int64_t, 2> const *lhs,
+    intrin_type_t<int64_t, 2> const& rhs,
+    intrin_type_t<int64_t, 2>& res);
+
+// 256-bit int64_t
+always_inline void div(clsvec<int64_t, 4> const *lhs,
+    intrin_type_t<int64_t, 4> const& rhs,
+    intrin_type_t<int64_t, 4>& res);
+
+// 512-bit int64_t
+always_inline void div(clsvec<int64_t, 8> const *lhs,
+    intrin_type_t<int64_t, 8> const& rhs,
+    intrin_type_t<int64_t, 8>& res);
+
+// 128-bit uint64_t
+always_inline void div(clsvec<uint64_t, 2> const *lhs,
+    intrin_type_t<uint64_t, 2> const& rhs,
+    intrin_type_t<uint64_t, 2>& res);
+
+// 256-bit uint64_t
+always_inline void div(clsvec<uint64_t, 4> const *lhs,
+    intrin_type_t<uint64_t, 4> const& rhs,
+    intrin_type_t<uint64_t, 4>& res);
+
+// 512-bit uint64_t
+always_inline void div(clsvec<uint64_t, 8> const *lhs,
+    intrin_type_t<uint64_t, 8> const& rhs,
+    intrin_type_t<uint64_t, 8>& res);
+
+// 128-bit double
+always_inline void div(clsvec<double, 2> const *lhs,
+    intrin_type_t<double, 2> const& rhs,
+    intrin_type_t<double, 2>& res);
+
+// 256-bit double
+always_inline void div(clsvec<double, 4> const *lhs,
+    intrin_type_t<double, 4> const& rhs,
+    intrin_type_t<double, 4>& res);
+
+// 512-bit double
+always_inline void div(clsvec<double, 8> const *lhs,
+    intrin_type_t<double, 8> const& rhs,
+    intrin_type_t<double, 8>& res);
+
+template<typename C, size_t N>
+class clsvec
+{
+public:
+    using component_t = C;
+    static size_t constexpr component_count = N;
+
+    clsvec()
+    {
+    }
+
+    clsvec(C scalar)
+    {
+        init(this, scalar);
+    }
+
+    template<typename ...Args>
+    clsvec(Args&& ...args)
+    {
+        static_assert(sizeof...(args) == N);
+        init(this, std::forward<Args>(args)...);
+    }
+
+    clsvec operator+(clsvec const& rhs) const
+    {
+        clsvec res;
+        add(this, rhs.data, res.data);
+        return res;
+    }
+
+    clsvec &operator+=(clsvec const& rhs)
+    {
+        add(this, rhs.data, data);
+        return *this;
+    }
+
+    clsvec operator-(clsvec const& rhs) const
+    {
+        clsvec res;
+        sub(this, rhs.data, res.data);
+        return res;
+    }
+
+    clsvec &operator-=(clsvec const& rhs)
+    {
+        sub(this, rhs.data, data);
+        return *this;
+    }
+
+    clsvec operator*(clsvec const& rhs) const
+    {
+        clsvec res;
+        mul(this, rhs.data, res.data);
+        return res;
+    }
+
+    clsvec &operator*=(clsvec const& rhs)
+    {
+        mul(this, rhs.data, data);
+        return *this;
+    }
+
+    clsvec operator/(clsvec const& rhs) const
+    {
+        clsvec res;
+        div(this, rhs.data, res.data);
+        return res;
+    }
+
+    clsvec &operator/=(clsvec const& rhs)
+    {
+        div(this, rhs.data, data);
+        return *this;
+    }
+
+    using underlying_type = intrin_type_t<C, N>;
+    underlying_type data;
+};
+
+template class clsvec<uint8_t, 16>;
+template class clsvec<int8_t, 16>;
+template class clsvec<uint16_t, 8>;
+template class clsvec<int16_t, 8>;
+template class clsvec<uint32_t, 4>;
+template class clsvec<int32_t, 4>;
+template class clsvec<float, 4>;
+template class clsvec<uint64_t, 2>;
+template class clsvec<int64_t, 2>;
+template class clsvec<double, 2>;
+
+#if defined(__AVX2__)
+template class clsvec<uint8_t, 32>;
+template class clsvec<int8_t, 32>;
+template class clsvec<uint16_t, 16>;
+template class clsvec<int16_t, 16>;
+template class clsvec<uint32_t, 8>;
+template class clsvec<int32_t, 8>;
+template class clsvec<float, 8>;
+template class clsvec<uint64_t, 4>;
+template class clsvec<int64_t, 4>;
+template class clsvec<double, 4>;
+#endif
+
+#if defined(__AVX512F__)
+template class clsvec<uint8_t, 64>;
+template class clsvec<int8_t, 64>;
+template class clsvec<uint16_t, 32>;
+template class clsvec<int16_t, 32>;
+template class clsvec<uint32_t, 16>;
+template class clsvec<int32_t, 16>;
+template class clsvec<float, 16>;
+template class clsvec<uint64_t, 8>;
+template class clsvec<int64_t, 8>;
+template class clsvec<double, 8>;
+#endif
+
+//
+// 8-bit
+
+// 128-bit int8_t init
+always_inline void init(clsvec<int8_t, 16> *lhs,
+    int8_t v00, int8_t v01, int8_t v02, int8_t v03,
+    int8_t v04, int8_t v05, int8_t v06, int8_t v07,
+    int8_t v08, int8_t v09, int8_t v10, int8_t v11,
+    int8_t v12, int8_t v13, int8_t v14, int8_t v15);
+
+// 128-bit uint8_t
+always_inline void init(clsvec<uint8_t, 16> *lhs,
+    uint8_t v00, uint8_t v01, uint8_t v02, uint8_t v03,
+    uint8_t v04, uint8_t v05, uint8_t v06, uint8_t v07,
+    uint8_t v08, uint8_t v09, uint8_t v10, uint8_t v11,
+    uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15);
+
+// 256-bit int8_t
+always_inline void init(clsvec<int8_t, 32> *lhs,
+    int8_t v00, int8_t v01, int8_t v02, int8_t v03,
+    int8_t v04, int8_t v05, int8_t v06, int8_t v07,
+    int8_t v08, int8_t v09, int8_t v10, int8_t v11,
+    int8_t v12, int8_t v13, int8_t v14, int8_t v15,
+    int8_t v16, int8_t v17, int8_t v18, int8_t v19,
+    int8_t v20, int8_t v21, int8_t v22, int8_t v23,
+    int8_t v24, int8_t v25, int8_t v26, int8_t v27,
+    int8_t v28, int8_t v29, int8_t v30, int8_t v31);
+
+// 256-bit uint8_t
+always_inline void init(clsvec<uint8_t, 32> *lhs,
+   uint8_t v00, uint8_t v01, uint8_t v02, uint8_t v03,
+   uint8_t v04, uint8_t v05, uint8_t v06, uint8_t v07,
+   uint8_t v08, uint8_t v09, uint8_t v10, uint8_t v11,
+   uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15,
+   uint8_t v16, uint8_t v17, uint8_t v18, uint8_t v19,
+   uint8_t v20, uint8_t v21, uint8_t v22, uint8_t v23,
+   uint8_t v24, uint8_t v25, uint8_t v26, uint8_t v27,
+   uint8_t v28, uint8_t v29, uint8_t v30, uint8_t v31);
+
+// 512-bit int8_t
+always_inline void init(clsvec<int8_t, 64> *lhs,
+   int8_t v00, int8_t v01, int8_t v02, int8_t v03,
+   int8_t v04, int8_t v05, int8_t v06, int8_t v07,
+   int8_t v08, int8_t v09, int8_t v10, int8_t v11,
+   int8_t v12, int8_t v13, int8_t v14, int8_t v15,
+   int8_t v16, int8_t v17, int8_t v18, int8_t v19,
+   int8_t v20, int8_t v21, int8_t v22, int8_t v23,
+   int8_t v24, int8_t v25, int8_t v26, int8_t v27,
+   int8_t v28, int8_t v29, int8_t v30, int8_t v31,
+   int8_t v32, int8_t v33, int8_t v34, int8_t v35,
+   int8_t v36, int8_t v37, int8_t v38, int8_t v39,
+   int8_t v40, int8_t v41, int8_t v42, int8_t v43,
+   int8_t v44, int8_t v45, int8_t v46, int8_t v47,
+   int8_t v48, int8_t v49, int8_t v50, int8_t v51,
+   int8_t v52, int8_t v53, int8_t v54, int8_t v55,
+   int8_t v56, int8_t v57, int8_t v58, int8_t v59,
+   int8_t v60, int8_t v61, int8_t v62, int8_t v63);
+
+// 512-bit uint8_t
+always_inline void init(clsvec<uint8_t, 64> *lhs,
+   uint8_t v00, uint8_t v01, uint8_t v02, uint8_t v03,
+   uint8_t v04, uint8_t v05, uint8_t v06, uint8_t v07,
+   uint8_t v08, uint8_t v09, uint8_t v10, uint8_t v11,
+   uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15,
+   uint8_t v16, uint8_t v17, uint8_t v18, uint8_t v19,
+   uint8_t v20, uint8_t v21, uint8_t v22, uint8_t v23,
+   uint8_t v24, uint8_t v25, uint8_t v26, uint8_t v27,
+   uint8_t v28, uint8_t v29, uint8_t v30, uint8_t v31,
+   uint8_t v32, uint8_t v33, uint8_t v34, uint8_t v35,
+   uint8_t v36, uint8_t v37, uint8_t v38, uint8_t v39,
+   uint8_t v40, uint8_t v41, uint8_t v42, uint8_t v43,
+   uint8_t v44, uint8_t v45, uint8_t v46, uint8_t v47,
+   uint8_t v48, uint8_t v49, uint8_t v50, uint8_t v51,
+   uint8_t v52, uint8_t v53, uint8_t v54, uint8_t v55,
+   uint8_t v56, uint8_t v57, uint8_t v58, uint8_t v59,
+   uint8_t v60, uint8_t v61, uint8_t v62, uint8_t v63);
+
+//
+// 16-bit
+
+// 128-bit int16_t
+always_inline void init(clsvec<int16_t, 8> *lhs,
+    int16_t v00, int16_t v01, int16_t v02, int16_t v03,
+    int16_t v04, int16_t v05, int16_t v06, int16_t v07);
+
+// 128-bit uint16_t
+always_inline void init(clsvec<uint16_t, 8> *lhs,
+    uint16_t v00, uint16_t v01, uint16_t v02, uint16_t v03,
+    uint16_t v04, uint16_t v05, uint16_t v06, uint16_t v07);
+
+// 256-bit int16_t
+always_inline void init(clsvec<int16_t, 16> *lhs,
+    int16_t v00, int16_t v01, int16_t v02, int16_t v03,
+    int16_t v04, int16_t v05, int16_t v06, int16_t v07,
+    int16_t v08, int16_t v09, int16_t v10, int16_t v11,
+    int16_t v12, int16_t v13, int16_t v14, int16_t v15);
+
+// 256-bit uint16_t
+always_inline void init(clsvec<uint16_t, 16> *lhs,
+   uint16_t v00, uint16_t v01, uint16_t v02, uint16_t v03,
+   uint16_t v04, uint16_t v05, uint16_t v06, uint16_t v07,
+   uint16_t v08, uint16_t v09, uint16_t v10, uint16_t v11,
+   uint16_t v12, uint16_t v13, uint16_t v14, uint16_t v15);
+
+// 512-bit int16_t
+always_inline void init(clsvec<int16_t, 32> *lhs,
+   int16_t v00, int16_t v01, int16_t v02, int16_t v03,
+   int16_t v04, int16_t v05, int16_t v06, int16_t v07,
+   int16_t v08, int16_t v09, int16_t v10, int16_t v11,
+   int16_t v12, int16_t v13, int16_t v14, int16_t v15,
+   int16_t v16, int16_t v17, int16_t v18, int16_t v19,
+   int16_t v20, int16_t v21, int16_t v22, int16_t v23,
+   int16_t v24, int16_t v25, int16_t v26, int16_t v27,
+   int16_t v28, int16_t v29, int16_t v30, int16_t v31);
+
+// 512-bit uint16_t
+always_inline void init(clsvec<uint16_t, 32> *lhs,
+   uint16_t v00, uint16_t v01, uint16_t v02, uint16_t v03,
+   uint16_t v04, uint16_t v05, uint16_t v06, uint16_t v07,
+   uint16_t v08, uint16_t v09, uint16_t v10, uint16_t v11,
+   uint16_t v12, uint16_t v13, uint16_t v14, uint16_t v15,
+   uint16_t v16, uint16_t v17, uint16_t v18, uint16_t v19,
+   uint16_t v20, uint16_t v21, uint16_t v22, uint16_t v23,
+   uint16_t v24, uint16_t v25, uint16_t v26, uint16_t v27,
+   uint16_t v28, uint16_t v29, uint16_t v30, uint16_t v31,
+   uint16_t v32, uint16_t v33, uint16_t v34, uint16_t v35,
+   uint16_t v36, uint16_t v37, uint16_t v38, uint16_t v39,
+   uint16_t v40, uint16_t v41, uint16_t v42, uint16_t v43,
+   uint16_t v44, uint16_t v45, uint16_t v46, uint16_t v47,
+   uint16_t v48, uint16_t v49, uint16_t v50, uint16_t v51,
+   uint16_t v52, uint16_t v53, uint16_t v54, uint16_t v55,
+   uint16_t v56, uint16_t v57, uint16_t v58, uint16_t v59,
+   uint16_t v60, uint16_t v61, uint16_t v62, uint16_t v63);
+
+//
+// 32-bit
+
+// 128-bit int32_t
+always_inline void init(clsvec<int32_t, 4> *lhs,
+    int32_t v00, int32_t v01, int32_t v02, int32_t v03);
+
+// 128-bit uint32_t
+always_inline void init(clsvec<uint32_t, 4> *lhs,
+    uint32_t v00, uint32_t v01, uint32_t v02, uint32_t v03);
+
+#if defined(__AVX2__)
+// 256-bit int32_t
+always_inline void init(clsvec<int32_t, 8> *lhs,
+    int32_t v00, int32_t v01, int32_t v02, int32_t v03,
+    int32_t v04, int32_t v05, int32_t v06, int32_t v07);
+
+// 256-bit uint32_t
+always_inline void init(clsvec<uint32_t, 8> *lhs,
+   uint32_t v00, uint32_t v01, uint32_t v02, uint32_t v03,
+   uint32_t v04, uint32_t v05, uint32_t v06, uint32_t v07);
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int32_t
+always_inline void init(clsvec<int32_t, 16> *lhs,
+   int32_t v00, int32_t v01, int32_t v02, int32_t v03,
+   int32_t v04, int32_t v05, int32_t v06, int32_t v07,
+   int32_t v08, int32_t v09, int32_t v10, int32_t v11,
+   int32_t v12, int32_t v13, int32_t v14, int32_t v15);
+
+// 512-bit uint32_t
+always_inline void init(clsvec<uint32_t, 16> *lhs,
+   uint32_t v00, uint32_t v01, uint32_t v02, uint32_t v03,
+   uint32_t v04, uint32_t v05, uint32_t v06, uint32_t v07,
+   uint32_t v08, uint32_t v09, uint32_t v10, uint32_t v11,
+   uint32_t v12, uint32_t v13, uint32_t v14, uint32_t v15);
+#endif
+
+// 128-bit float
+always_inline void init(clsvec<float, 4> *lhs,
+   float v00, float v01, float v02, float v03);
+
+#if defined(__AVX2__)
+// 256-bit float
+always_inline void init(clsvec<float, 8> *lhs,
+   float v00, float v01, float v02, float v03,
+   float v04, float v05, float v06, float v07);
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit float
+always_inline void init(clsvec<float, 16> *lhs,
+   float v00, float v01, float v02, float v03,
+   float v04, float v05, float v06, float v07,
+   float v08, float v09, float v10, float v11,
+   float v12, float v13, float v14, float v15);
+#endif
+
+//
+// 64-bit
+
+// 128-bit int64_t
+always_inline void init(clsvec<int64_t, 2> *lhs,
+    int64_t v00, int64_t v01);
+
+// 128-bit uint64_t
+always_inline void init(clsvec<uint64_t, 2> *lhs,
+    uint64_t v00, uint64_t v01);
+
+// 256-bit int64_t
+always_inline void init(clsvec<int64_t, 4> *lhs,
+    int64_t v00, int64_t v01, int64_t v02, int64_t v03);
+
+// 256-bit uint64_t
+always_inline void init(clsvec<uint64_t, 4> *lhs,
+   uint64_t v00, uint64_t v01, uint64_t v02, uint64_t v03);
+
+// 512-bit int64_t
+always_inline void init(clsvec<int64_t, 8> *lhs,
+   int64_t v00, int64_t v01, int64_t v02, int64_t v03,
+   int64_t v04, int64_t v05, int64_t v06, int64_t v07);
+
+// 512-bit uint64_t
+always_inline void init(clsvec<uint64_t, 8> *lhs,
+   uint64_t v00, uint64_t v01, uint64_t v02, uint64_t v03,
+   uint64_t v04, uint64_t v05, uint64_t v06, uint64_t v07);
+
+// 128-bit double
+always_inline void init(clsvec<double, 2> *lhs,
+   double v00, double v01);
+
+// 256-bit double
+always_inline void init(clsvec<double, 4> *lhs,
+   double v00, double v01, double v02, double v03);
+
+// 512-bit double
+always_inline void init(clsvec<double, 8> *lhs,
+   double v00, double v01, double v02, double v03,
+   double v04, double v05, double v06, double v07);
+
+//
+// Broadcasts
+
+always_inline void init(clsvec<int8_t, 16> *lhs, int8_t scalar)
+{
+    lhs->data = _mm_set1_epi8(scalar);
+}
+
+always_inline void init(clsvec<int8_t, 32> *lhs, int8_t scalar)
+{
+    lhs->data = _mm256_set1_epi8(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<int8_t, 64> *lhs, int8_t scalar)
+{
+    lhs->data = _mm512_set1_epi8(scalar);
+}
+#endif
+
+always_inline void init(clsvec<uint8_t, 16> *lhs, uint8_t scalar)
+{
+    lhs->data = _mm_set1_epi8(scalar);
+}
+
+always_inline void init(clsvec<uint8_t, 32> *lhs, uint8_t scalar)
+{
+    lhs->data = _mm256_set1_epi8(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<uint8_t, 64> *lhs, uint8_t scalar)
+{
+    lhs->data = _mm512_set1_epi8(scalar);
+}
+#endif
+
+always_inline void init(clsvec<int16_t, 8> *lhs, int16_t scalar)
+{
+    lhs->data = _mm_set1_epi16(scalar);
+}
+
+always_inline void init(clsvec<int16_t, 16> *lhs, int16_t scalar)
+{
+    lhs->data = _mm256_set1_epi16(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<int16_t, 32> *lhs, int16_t scalar)
+{
+    lhs->data = _mm512_set1_epi16(scalar);
+}
+#endif
+
+always_inline void init(clsvec<uint16_t, 8> *lhs, uint16_t scalar)
+{
+        lhs->data = _mm_set1_epi16(scalar);
+}
+
+always_inline void init(clsvec<uint16_t, 16> *lhs, uint16_t scalar)
+{
+    lhs->data = _mm256_set1_epi16(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<uint16_t, 32> *lhs, uint16_t scalar)
+{
+    lhs->data = _mm512_set1_epi16(scalar);
+}
+#endif
+
+always_inline void init(clsvec<int32_t, 4> *lhs, int32_t scalar)
+{
+    lhs->data = _mm_set1_epi32(scalar);
+}
+
+always_inline void init(clsvec<int32_t, 8> *lhs, int32_t scalar)
+{
+    lhs->data = _mm256_set1_epi32(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<int32_t, 16> *lhs, int32_t scalar)
+{
+    lhs->data = _mm512_set1_epi32(scalar);
+}
+#endif
+
+always_inline void init(clsvec<uint32_t, 4> *lhs, uint32_t scalar)
+{
+    lhs->data = _mm_set1_epi32(scalar);
+}
+
+always_inline void init(clsvec<uint32_t, 8> *lhs, uint32_t scalar)
+{
+    lhs->data = _mm256_set1_epi32(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<uint32_t, 16> *lhs, uint32_t scalar)
+{
+    lhs->data = _mm512_set1_epi32(scalar);
+}
+#endif
+
+always_inline void init(clsvec<float, 4> *lhs, float scalar)
+{
+    lhs->data = _mm_set1_ps(scalar);
+}
+
+always_inline void init(clsvec<float, 8> *lhs, float scalar)
+{
+    lhs->data = _mm256_set1_ps(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<float, 16> *lhs, float scalar)
+{
+    lhs->data = _mm512_set1_ps(scalar);
+}
+#endif
+
+always_inline void init(clsvec<int64_t, 2> *lhs, int64_t scalar)
+{
+    lhs->data = _mm_set1_epi64x(scalar);
+}
+
+always_inline void init(clsvec<int64_t, 4> *lhs, int64_t scalar)
+{
+    lhs->data = _mm256_set1_epi64x(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<int64_t, 8> *lhs, int64_t scalar)
+{
+    lhs->data = _mm512_set1_epi64(scalar);
+}
+#endif
+
+always_inline void init(clsvec<uint64_t, 2> *lhs, uint64_t scalar)
+{
+    lhs->data = _mm_set1_epi64x(scalar);
+}
+
+always_inline void init(clsvec<uint64_t, 4> *lhs, uint64_t scalar)
+{
+    lhs->data = _mm256_set1_epi64x(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<uint64_t, 8> *lhs, uint64_t scalar)
+{
+    lhs->data = _mm512_set1_epi64(scalar);
+}
+#endif
+
+always_inline void init(clsvec<double, 2> *lhs, double scalar)
+{
+    lhs->data = _mm_set1_pd(scalar);
+}
+
+always_inline void init(clsvec<double, 4> *lhs, double scalar)
+{
+    lhs->data = _mm256_set1_pd(scalar);
+}
+
+#if defined(__AVX512F__)
+always_inline void init(clsvec<double, 8> *lhs, double scalar)
+{
+    lhs->data = _mm512_set1_pd(scalar);
+}
+#endif
+
+always_inline void init(clsvec<uint8_t, 16> *lhs,
+    uint8_t v00, uint8_t v01, uint8_t v02, uint8_t v03,
+    uint8_t v04, uint8_t v05, uint8_t v06, uint8_t v07,
+    uint8_t v08, uint8_t v09, uint8_t v10, uint8_t v11,
+    uint8_t v12, uint8_t v13, uint8_t v14, uint8_t v15)
+{
+    lhs->data = _mm_setr_epi8(
+        (char)v00, (char)v01, (char)v02, (char)v03,
+        (char)v04, (char)v05, (char)v06, (char)v07,
+        (char)v08, (char)v09, (char)v10, (char)v11,
+        (char)v12, (char)v13, (char)v14, (char)v15);
+}
+
+always_inline void init(clsvec<uint16_t, 8> *lhs,
+    uint16_t v00, uint16_t v01, uint16_t v02, uint16_t v03,
+    uint16_t v04, uint16_t v05, uint16_t v06, uint16_t v07)
+{
+    lhs->data = _mm_setr_epi16(
+        (short)v00, (short)v01, (short)v02, (short)v03,
+        (short)v04, (short)v05, (short)v06, (short)v07);
+}
+
+always_inline void init(clsvec<uint32_t, 4> *lhs,
+    uint32_t v00, uint32_t v01, uint32_t v02, uint32_t v03)
+{
+    lhs->data = _mm_setr_epi32(
+        (int)v00, (int)v01, (int)v02, (int)v03);
+}
+
+always_inline void init(clsvec<uint64_t, 2> *lhs,
+    uint64_t v00, uint64_t v01)
+{
+    lhs->data = _mm_setr_epi32(
+        (int32_t)v00, (int32_t)(v00 >> 32),
+        (int32_t)v01, (int32_t)(v01 >> 32));
+}
+
+// 128-bit int8_t add
+always_inline void add(clsvec<int8_t, 16> const *lhs,
+    intrin_type_t<int8_t, 16> const& rhs,
+    intrin_type_t<int8_t, 16>& res)
+{
+    res = _mm_add_epi8(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int8_t
+always_inline void add(clsvec<int8_t, 32> const *lhs,
+    intrin_type_t<int8_t, 32> const& rhs,
+    intrin_type_t<int8_t, 32>& res)
+{
+    intrin_type_t<int8_t, 32> zero = _mm256_setzero_si256();
+    intrin_type_t<int16_t, 16> lhs0 = _mm256_unpacklo_epi8(zero, lhs->data);
+    intrin_type_t<int16_t, 16> lhs1 = _mm256_unpackhi_epi8(zero, lhs->data);
+    intrin_type_t<int16_t, 16> rhs0 = _mm256_unpacklo_epi8(zero, rhs);
+    intrin_type_t<int16_t, 16> rhs1 = _mm256_unpackhi_epi8(zero, rhs);
+    lhs0 = _mm256_srai_epi16(lhs0, 8);
+    lhs1 = _mm256_srai_epi16(lhs1, 8);
+    rhs0 = _mm256_srai_epi16(rhs0, 8);
+    rhs1 = _mm256_srai_epi16(rhs1, 8);
+    intrin_type_t<int8_t, 32> res0 = _mm256_add_epi16(lhs0, rhs0);
+    intrin_type_t<int8_t, 32> res1 = _mm256_add_epi16(lhs1, rhs1);
+    res = _mm256_packs_epi16(res0, res1);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int8_t
+always_inline void add(clsvec<int8_t, 64> const *lhs,
+    intrin_type_t<int8_t, 64> const& rhs,
+    intrin_type_t<int8_t, 64>& res)
+{
+    res = _mm512_add_epi8(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint8_t
+always_inline void add(clsvec<uint8_t, 16> const *lhs,
+    intrin_type_t<uint8_t, 16> const& rhs,
+    intrin_type_t<uint8_t, 16>& res)
+{
+    res = _mm_add_epi8(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint8_t
+always_inline void add(clsvec<uint8_t, 32> const *lhs,
+    intrin_type_t<uint8_t, 32> const& rhs,
+    intrin_type_t<uint8_t, 32>& res)
+{
+    res = _mm256_add_epi8(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint8_t
+always_inline void add(clsvec<uint8_t, 64> const *lhs,
+    intrin_type_t<uint8_t, 64> const& rhs,
+    intrin_type_t<uint8_t, 64>& res)
+{
+    res = _mm512_add_epi8(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int16_t
+always_inline void add(clsvec<int16_t, 8> const *lhs,
+    intrin_type_t<int16_t, 8> const& rhs,
+    intrin_type_t<int16_t, 8>& res)
+{
+    res = _mm_add_epi16(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int16_t
+always_inline void add(clsvec<int16_t, 16> const *lhs,
+    intrin_type_t<int16_t, 16> const& rhs,
+    intrin_type_t<int16_t, 16>& res)
+{
+    res = _mm256_add_epi16(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int16_t
+always_inline void add(clsvec<int16_t, 32> const *lhs,
+    intrin_type_t<int16_t, 32> const& rhs,
+    intrin_type_t<int16_t, 32>& res)
+{
+    res = _mm512_add_epi16(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int16_t
+always_inline void add(clsvec<uint16_t, 8> const *lhs,
+    intrin_type_t<uint16_t, 8> const& rhs,
+    intrin_type_t<uint16_t, 8>& res)
+{
+    res = _mm_add_epi16(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int16_t
+always_inline void add(clsvec<uint16_t, 16> const *lhs,
+    intrin_type_t<uint16_t, 16> const& rhs,
+    intrin_type_t<uint16_t, 16>& res)
+{
+    res = _mm256_add_epi16(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint16_t
+always_inline void add(clsvec<uint16_t, 32> const *lhs,
+    intrin_type_t<uint16_t, 32> const& rhs,
+    intrin_type_t<uint16_t, 32>& res)
+{
+    res = _mm512_add_epi16(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int32_t
+always_inline void add(clsvec<int32_t, 4> const *lhs,
+    intrin_type_t<int32_t, 4> const& rhs,
+    intrin_type_t<int32_t, 4>& res)
+{
+    res = _mm_add_epi32(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int32_t
+always_inline void add(clsvec<int32_t, 8> const *lhs,
+    intrin_type_t<int32_t, 8> const& rhs,
+    intrin_type_t<int32_t, 8>& res)
+{
+    res = _mm256_add_epi32(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int32_t
+always_inline void add(clsvec<int32_t, 16> const *lhs,
+    intrin_type_t<int32_t, 16> const& rhs,
+    intrin_type_t<int32_t, 16>& res)
+{
+    res = _mm512_add_epi32(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint32_t
+always_inline void add(clsvec<uint32_t, 4> const *lhs,
+    intrin_type_t<uint32_t, 4> const& rhs,
+    intrin_type_t<uint32_t, 4>& res)
+{
+    res = _mm_add_epi32(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint32_t
+always_inline void add(clsvec<uint32_t, 8> const *lhs,
+    intrin_type_t<uint32_t, 8> const& rhs,
+    intrin_type_t<uint32_t, 8>& res)
+{
+    res = _mm256_add_epi32(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint32_t
+always_inline void add(clsvec<uint32_t, 16> const *lhs,
+    intrin_type_t<uint32_t, 16> const& rhs,
+    intrin_type_t<uint32_t, 16>& res)
+{
+    res = _mm512_add_epi32(lhs->data, rhs);
+}
+#endif
+
+// 128-bit float
+always_inline void add(clsvec<float, 4> const *lhs,
+    intrin_type_t<float, 4> const& rhs,
+    intrin_type_t<float, 4>& res)
+{
+    res = _mm_add_ps(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit float
+always_inline void add(clsvec<float, 8> const *lhs,
+    intrin_type_t<float, 8> const& rhs,
+    intrin_type_t<float, 8>& res)
+{
+    res = _mm256_add_ps(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit float
+always_inline void add(clsvec<float, 16> const *lhs,
+    intrin_type_t<float, 16> const& rhs,
+    intrin_type_t<float, 16>& res)
+{
+    res = _mm512_add_ps(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int64_t
+always_inline void add(clsvec<int64_t, 2> const *lhs,
+    intrin_type_t<int64_t, 2> const& rhs,
+    intrin_type_t<int64_t, 2>& res)
+{
+    res = _mm_add_epi64(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int64_t
+always_inline void add(clsvec<int64_t, 4> const *lhs,
+    intrin_type_t<int64_t, 4> const& rhs,
+    intrin_type_t<int64_t, 4>& res)
+{
+    res = _mm256_add_epi64(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int64_t
+always_inline void add(clsvec<int64_t, 8> const *lhs,
+    intrin_type_t<int64_t, 8> const& rhs,
+    intrin_type_t<int64_t, 8>& res)
+{
+    res = _mm512_add_epi64(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint64_t
+always_inline void add(clsvec<uint64_t, 2> const *lhs,
+    intrin_type_t<uint64_t, 2> const& rhs,
+    intrin_type_t<uint64_t, 2>& res)
+{
+    res = _mm_add_epi64(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint64_t
+always_inline void add(clsvec<uint64_t, 4> const *lhs,
+    intrin_type_t<uint64_t, 4> const& rhs,
+    intrin_type_t<uint64_t, 4>& res)
+{
+    res = _mm256_add_epi64(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint64_t
+always_inline void add(clsvec<uint64_t, 8> const *lhs,
+    intrin_type_t<uint64_t, 8> const& rhs,
+    intrin_type_t<uint64_t, 8>& res)
+{
+    res = _mm512_add_epi64(lhs->data, rhs);
+}
+#endif
+
+// 128-bit double
+always_inline void add(clsvec<double, 2> const *lhs,
+    intrin_type_t<double, 2> const& rhs,
+    intrin_type_t<double, 2>& res)
+{
+    res = _mm_add_pd(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit double
+always_inline void add(clsvec<double, 4> const *lhs,
+    intrin_type_t<double, 4> const& rhs,
+    intrin_type_t<double, 4>& res)
+{
+    res = _mm256_add_pd(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit double
+always_inline void add(clsvec<double, 8> const *lhs,
+    intrin_type_t<double, 8> const& rhs,
+    intrin_type_t<double, 8>& res)
+{
+    res = _mm512_add_pd(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int8_t sub
+always_inline void sub(clsvec<int8_t, 16> const *lhs,
+    intrin_type_t<int8_t, 16> const& rhs,
+    intrin_type_t<int8_t, 16>& res)
+{
+    res = _mm_sub_epi8(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int8_t sub
+always_inline void sub(clsvec<int8_t, 32> const *lhs,
+    intrin_type_t<int8_t, 32> const& rhs,
+    intrin_type_t<int8_t, 32>& res)
+{
+    res = _mm256_sub_epi8(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int8_t sub
+always_inline void sub(clsvec<int8_t, 64> const *lhs,
+    intrin_type_t<int8_t, 64> const& rhs,
+    intrin_type_t<int8_t, 64>& res)
+{
+    res = _mm512_sub_epi8(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint8_t sub
+always_inline void sub(clsvec<uint8_t, 16> const *lhs,
+    intrin_type_t<uint8_t, 16> const& rhs,
+    intrin_type_t<uint8_t, 16>& res)
+{
+    res = _mm_sub_epi8(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint8_t sub
+always_inline void sub(clsvec<uint8_t, 32> const *lhs,
+    intrin_type_t<uint8_t, 32> const& rhs,
+    intrin_type_t<uint8_t, 32>& res)
+{
+    res = _mm256_sub_epi8(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint8_t sub
+always_inline void sub(clsvec<uint8_t, 64> const *lhs,
+    intrin_type_t<uint8_t, 64> const& rhs,
+    intrin_type_t<uint8_t, 64>& res)
+{
+    res = _mm512_sub_epi8(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int16_t sub
+always_inline void sub(clsvec<int16_t, 8> const *lhs,
+    intrin_type_t<int16_t, 8> const& rhs,
+    intrin_type_t<int16_t, 8>& res)
+{
+    res = _mm_sub_epi16(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int16_t sub
+always_inline void sub(clsvec<int16_t, 16> const *lhs,
+    intrin_type_t<int16_t, 16> const& rhs,
+    intrin_type_t<int16_t, 16>& res)
+{
+    res = _mm256_sub_epi16(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int16_t sub
+always_inline void sub(clsvec<int16_t, 32> const *lhs,
+    intrin_type_t<int16_t, 32> const& rhs,
+    intrin_type_t<int16_t, 32>& res)
+{
+    res = _mm512_sub_epi16(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint16_t sub
+always_inline void sub(clsvec<uint16_t, 8> const *lhs,
+    intrin_type_t<uint16_t, 8> const& rhs,
+    intrin_type_t<uint16_t, 8>& res)
+{
+    res = _mm_sub_epi16(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint16_t sub
+always_inline void sub(clsvec<uint16_t, 16> const *lhs,
+    intrin_type_t<uint16_t, 16> const& rhs,
+    intrin_type_t<uint16_t, 16>& res)
+{
+    res = _mm256_sub_epi16(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint16_t sub
+always_inline void sub(clsvec<uint16_t, 32> const *lhs,
+    intrin_type_t<uint16_t, 32> const& rhs,
+    intrin_type_t<uint16_t, 32>& res)
+{
+    res = _mm512_sub_epi16(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int32_t sub
+always_inline void sub(clsvec<int32_t, 4> const *lhs,
+    intrin_type_t<int32_t, 4> const& rhs,
+    intrin_type_t<int32_t, 4>& res)
+{
+    res = _mm_sub_epi32(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int32_t sub
+always_inline void sub(clsvec<int32_t, 8> const *lhs,
+    intrin_type_t<int32_t, 8> const& rhs,
+    intrin_type_t<int32_t, 8>& res)
+{
+    res = _mm256_sub_epi32(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int32_t sub
+always_inline void sub(clsvec<int32_t, 16> const *lhs,
+    intrin_type_t<int32_t, 16> const& rhs,
+    intrin_type_t<int32_t, 16>& res)
+{
+    res = _mm512_sub_epi32(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint32_t sub
+always_inline void sub(clsvec<uint32_t, 4> const *lhs,
+    intrin_type_t<uint32_t, 4> const& rhs,
+    intrin_type_t<uint32_t, 4>& res)
+{
+    res = _mm_sub_epi32(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint32_t sub
+always_inline void sub(clsvec<uint32_t, 8> const *lhs,
+    intrin_type_t<uint32_t, 8> const& rhs,
+    intrin_type_t<uint32_t, 8>& res)
+{
+    res = _mm256_sub_epi32(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint32_t sub
+always_inline void sub(clsvec<uint32_t, 16> const *lhs,
+    intrin_type_t<uint32_t, 16> const& rhs,
+    intrin_type_t<uint32_t, 16>& res)
+{
+    res = _mm512_sub_epi32(lhs->data, rhs);
+}
+#endif
+
+// 128-bit float sub
+always_inline void sub(clsvec<float, 4> const *lhs,
+    intrin_type_t<float, 4> const& rhs,
+    intrin_type_t<float, 4>& res)
+{
+    res = _mm_sub_ps(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit float sub
+always_inline void sub(clsvec<float, 8> const *lhs,
+    intrin_type_t<float, 8> const& rhs,
+    intrin_type_t<float, 8>& res)
+{
+    res = _mm256_sub_ps(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit float sub
+always_inline void sub(clsvec<float, 16> const *lhs,
+    intrin_type_t<float, 16> const& rhs,
+    intrin_type_t<float, 16>& res)
+{
+    res = _mm512_sub_ps(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int64_t sub
+always_inline void sub(clsvec<int64_t, 2> const *lhs,
+    intrin_type_t<int64_t, 2> const& rhs,
+    intrin_type_t<int64_t, 2>& res)
+{
+    res = _mm_sub_epi64(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int64_t sub
+always_inline void sub(clsvec<int64_t, 4> const *lhs,
+    intrin_type_t<int64_t, 4> const& rhs,
+    intrin_type_t<int64_t, 4>& res)
+{
+    res = _mm256_sub_epi64(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int64_t sub
+always_inline void sub(clsvec<int64_t, 8> const *lhs,
+    intrin_type_t<int64_t, 8> const& rhs,
+    intrin_type_t<int64_t, 8>& res)
+{
+    res = _mm512_sub_epi64(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint64_t sub
+always_inline void sub(clsvec<uint64_t, 2> const *lhs,
+    intrin_type_t<uint64_t, 2> const& rhs,
+    intrin_type_t<uint64_t, 2>& res)
+{
+    res = _mm_sub_epi64(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint64_t sub
+always_inline void sub(clsvec<uint64_t, 4> const *lhs,
+    intrin_type_t<uint64_t, 4> const& rhs,
+    intrin_type_t<uint64_t, 4>& res)
+{
+    res = _mm256_sub_epi64(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint64_t sub
+always_inline void sub(clsvec<uint64_t, 8> const *lhs,
+    intrin_type_t<uint64_t, 8> const& rhs,
+    intrin_type_t<uint64_t, 8>& res)
+{
+    res = _mm512_sub_epi64(lhs->data, rhs);
+}
+#endif
+
+// 128-bit double sub
+always_inline void sub(clsvec<double, 2> const *lhs,
+    intrin_type_t<double, 2> const& rhs,
+    intrin_type_t<double, 2>& res)
+{
+    res = _mm_sub_pd(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit double sub
+always_inline void sub(clsvec<double, 4> const *lhs,
+    intrin_type_t<double, 4> const& rhs,
+    intrin_type_t<double, 4>& res)
+{
+    res = _mm256_sub_pd(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit double sub
+always_inline void sub(clsvec<double, 8> const *lhs,
+    intrin_type_t<double, 8> const& rhs,
+    intrin_type_t<double, 8>& res)
+{
+    res = _mm512_sub_pd(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int8_t mul
+always_inline void mul(clsvec<int8_t, 16> const *lhs,
+    intrin_type_t<int8_t, 16> const& rhs,
+    intrin_type_t<int8_t, 16>& res)
+{
+    // Unpack backwards, so the value is in the upper 8 bits...
+    intrin_type_t<int8_t, 16> const zero =
+        _mm_setzero_si128();
+    intrin_type_t<int8_t, 16> lhs_hi =
+        _mm_unpackhi_epi8(zero, lhs->data);
+    intrin_type_t<int8_t, 16> lhs_lo =
+        _mm_unpacklo_epi8(zero, lhs->data);
+    intrin_type_t<int8_t, 16> rhs_hi =
+        _mm_unpackhi_epi8(zero, rhs);
+    intrin_type_t<int8_t, 16> rhs_lo =
+        _mm_unpacklo_epi8(zero, rhs);
+    // ...so I can sign extend them with an arithmetic shift immediate
+    lhs_hi = _mm_srai_epi16(lhs_hi, 8);
+    rhs_hi = _mm_srai_epi16(rhs_hi, 8);
+    lhs_lo = _mm_srai_epi16(lhs_lo, 8);
+    rhs_lo = _mm_srai_epi16(rhs_lo, 8);
+    // Multiply as 16 bit
+    intrin_type_t<int8_t, 16> res_hi =
+        _mm_mullo_epi16(lhs_hi, rhs_hi);
+    intrin_type_t<int8_t, 16> res_lo =
+        _mm_mullo_epi16(lhs_lo, rhs_lo);
+    // Signed pack back down to 8 bit
+    res = _mm_packs_epi16(res_lo, res_hi);
+}
+
+#if defined(__AVX2__)
+// 256-bit int8_t
+always_inline void mul(clsvec<int8_t, 32> const *lhs,
+    intrin_type_t<int8_t, 32> const& rhs,
+    intrin_type_t<int8_t, 32>& res)
+{
+    // Unpack backwards, so the value is in the upper 8 bits...
+    intrin_type_t<int8_t, 32> const zero =
+        _mm256_setzero_si256();
+    intrin_type_t<int8_t, 32> lhs_hi =
+        _mm256_unpackhi_epi8(zero, lhs->data);
+    intrin_type_t<int8_t, 32> lhs_lo =
+        _mm256_unpacklo_epi8(zero, lhs->data);
+    intrin_type_t<int8_t, 32> rhs_hi =
+        _mm256_unpackhi_epi8(zero, rhs);
+    intrin_type_t<int8_t, 32> rhs_lo =
+        _mm256_unpacklo_epi8(zero, rhs);
+    // ...so I can sign extend them with an arithmetic shift immediate
+    lhs_hi = _mm256_srai_epi16(lhs_hi, 8);
+    rhs_hi = _mm256_srai_epi16(rhs_hi, 8);
+    lhs_lo = _mm256_srai_epi16(lhs_lo, 8);
+    rhs_lo = _mm256_srai_epi16(rhs_lo, 8);
+    // Multiply as 16 bit
+    intrin_type_t<int8_t, 32> res_hi =
+        _mm256_mullo_epi16(lhs_hi, rhs_hi);
+    intrin_type_t<int8_t, 32> res_lo =
+        _mm256_mullo_epi16(lhs_lo, rhs_lo);
+    // Signed pack back down to 8 bit
+    res = _mm256_packs_epi16(res_lo, res_hi);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int8_t
+always_inline void mul(clsvec<int8_t, 64> const *lhs,
+    intrin_type_t<int8_t, 64> const& rhs,
+    intrin_type_t<int8_t, 64>& res)
+{
+    // Unpack backwards, so the value is in the upper 8 bits...
+    intrin_type_t<int8_t, 64> const zero =
+        _mm512_setzero_si512();
+    intrin_type_t<int8_t, 64> lhs_hi =
+        _mm512_unpackhi_epi8(zero, lhs->data);
+    intrin_type_t<int8_t, 64> lhs_lo =
+        _mm512_unpacklo_epi8(zero, lhs->data);
+    intrin_type_t<int8_t, 64> rhs_hi =
+        _mm512_unpackhi_epi8(zero, rhs);
+    intrin_type_t<int8_t, 64> rhs_lo =
+        _mm512_unpacklo_epi8(zero, rhs);
+    // ...so I can sign extend them with an arithmetic shift immediate
+    lhs_hi = _mm512_srai_epi16(lhs_hi, 8);
+    rhs_hi = _mm512_srai_epi16(rhs_hi, 8);
+    lhs_lo = _mm512_srai_epi16(lhs_lo, 8);
+    rhs_lo = _mm512_srai_epi16(rhs_lo, 8);
+    // Multiply as 16 bit
+    intrin_type_t<int8_t, 64> res_hi =
+        _mm512_mullo_epi16(lhs_hi, rhs_hi);
+    intrin_type_t<int8_t, 64> res_lo =
+        _mm512_mullo_epi16(lhs_lo, rhs_lo);
+    // Signed pack back down to 8 bit
+    res = _mm512_packs_epi16(res_lo, res_hi);
+}
+#endif
+
+// 128-bit uint8_t
+always_inline void mul(clsvec<uint8_t, 16> const *lhs,
+    intrin_type_t<uint8_t, 16> const& rhs,
+    intrin_type_t<uint8_t, 16>& res)
+{
+    // Zero extend unsigned values
+    intrin_type_t<uint8_t, 16> const zero =
+        _mm_setzero_si128();
+    intrin_type_t<uint8_t, 16> lhs_hi =
+        _mm_unpackhi_epi8(lhs->data, zero);
+    intrin_type_t<uint8_t, 16> lhs_lo =
+        _mm_unpacklo_epi8(lhs->data, zero);
+    intrin_type_t<uint8_t, 16> rhs_hi =
+        _mm_unpackhi_epi8(rhs, zero);
+    intrin_type_t<uint8_t, 16> rhs_lo =
+        _mm_unpacklo_epi8(rhs, zero);
+    // Multiply as 16 bit
+    intrin_type_t<uint8_t, 16> res_hi =
+        _mm_mullo_epi16(lhs_hi, rhs_hi);
+    intrin_type_t<uint8_t, 16> res_lo =
+        _mm_mullo_epi16(lhs_lo, rhs_lo);
+    // Unsigned pack back down to 8 bit
+    res = _mm_packus_epi16(res_lo, res_hi);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint8_t
+always_inline void mul(clsvec<uint8_t, 32> const *lhs,
+    intrin_type_t<uint8_t, 32> const& rhs,
+    intrin_type_t<uint8_t, 32>& res)
+{
+    // Zero extend unsigned values
+    intrin_type_t<uint8_t, 32> const zero =
+        _mm256_setzero_si256();
+    intrin_type_t<uint8_t, 32> lhs_hi =
+        _mm256_unpackhi_epi8(lhs->data, zero);
+    intrin_type_t<uint8_t, 32> lhs_lo =
+        _mm256_unpacklo_epi8(lhs->data, zero);
+    intrin_type_t<uint8_t, 32> rhs_hi =
+        _mm256_unpackhi_epi8(rhs, zero);
+    intrin_type_t<uint8_t, 32> rhs_lo =
+        _mm256_unpacklo_epi8(rhs, zero);
+    // Multiply as 16 bit
+    intrin_type_t<uint8_t, 32> res_hi =
+        _mm256_mullo_epi16(lhs_hi, rhs_hi);
+    intrin_type_t<uint8_t, 32> res_lo =
+        _mm256_mullo_epi16(lhs_lo, rhs_lo);
+    // Unsigned pack back down to 8 bit
+    res = _mm256_packus_epi16(res_lo, res_hi);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint8_t
+always_inline void mul(clsvec<uint8_t, 64> const *lhs,
+    intrin_type_t<uint8_t, 64> const& rhs,
+    intrin_type_t<uint8_t, 64>& res)
+{
+    // Zero extend unsigned values
+    intrin_type_t<uint8_t, 64> const zero =
+        _mm512_setzero_si512();
+    intrin_type_t<uint8_t, 64> lhs_hi =
+        _mm512_unpackhi_epi8(lhs->data, zero);
+    intrin_type_t<uint8_t, 64> lhs_lo =
+        _mm512_unpacklo_epi8(lhs->data, zero);
+    intrin_type_t<uint8_t, 64> rhs_hi =
+        _mm512_unpackhi_epi8(rhs, zero);
+    intrin_type_t<uint8_t, 64> rhs_lo =
+        _mm512_unpacklo_epi8(rhs, zero);
+    // Multiply as 16 bit
+    intrin_type_t<uint8_t, 64> res_hi =
+        _mm512_mullo_epi16(lhs_hi, rhs_hi);
+    intrin_type_t<uint8_t, 64> res_lo =
+        _mm512_mullo_epi16(lhs_lo, rhs_lo);
+    // Unsigned pack back down to 8 bit
+    res = _mm512_packus_epi16(res_lo, res_hi);
+}
+#endif
+
+// 128-bit int16_t
+always_inline void mul(clsvec<int16_t, 8> const *lhs,
+    intrin_type_t<int16_t, 8> const& rhs,
+    intrin_type_t<int16_t, 8>& res)
+{
+    res = _mm_mullo_epi16(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int16_t
+always_inline void mul(clsvec<int16_t, 16> const *lhs,
+    intrin_type_t<int16_t, 16> const& rhs,
+    intrin_type_t<int16_t, 16>& res)
+{
+    res = _mm256_mullo_epi16(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int16_t
+always_inline void mul(clsvec<int16_t, 32> const *lhs,
+    intrin_type_t<int16_t, 32> const& rhs,
+    intrin_type_t<int16_t, 32>& res)
+{
+    res = _mm512_mullo_epi16(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint16_t
+always_inline void mul(clsvec<uint16_t, 8> const *lhs,
+    intrin_type_t<uint16_t, 8> const& rhs,
+    intrin_type_t<uint16_t, 8>& res)
+{
+    res = _mm_mullo_epi16(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint16_t
+always_inline void mul(clsvec<uint16_t, 16> const *lhs,
+    intrin_type_t<uint16_t, 16> const& rhs,
+    intrin_type_t<uint16_t, 16>& res)
+{
+    res = _mm256_mullo_epi16(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint16_t
+always_inline void mul(clsvec<uint16_t, 32> const *lhs,
+    intrin_type_t<uint16_t, 32> const& rhs,
+    intrin_type_t<uint16_t, 32>& res)
+{
+    res = _mm512_mullo_epi16(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int32_t
+always_inline void mul(clsvec<int32_t, 4> const *lhs,
+    intrin_type_t<int32_t, 4> const& rhs,
+    intrin_type_t<int32_t, 4>& res)
+{
+    res = _mm_mullo_epi32(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit int32_t
+always_inline void mul(clsvec<int32_t, 8> const *lhs,
+    intrin_type_t<int32_t, 8> const& rhs,
+    intrin_type_t<int32_t, 8>& res)
+{
+    res = _mm256_mullo_epi32(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int32_t
+always_inline void mul(clsvec<int32_t, 16> const *lhs,
+    intrin_type_t<int32_t, 16> const& rhs,
+    intrin_type_t<int32_t, 16>& res)
+{
+    res = _mm512_mullo_epi32(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint32_t
+always_inline void mul(clsvec<uint32_t, 4> const *lhs,
+    intrin_type_t<uint32_t, 4> const& rhs,
+    intrin_type_t<uint32_t, 4>& res)
+{
+    res = _mm_mullo_epi32(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit uint32_t
+always_inline void mul(clsvec<uint32_t, 8> const *lhs,
+    intrin_type_t<uint32_t, 8> const& rhs,
+    intrin_type_t<uint32_t, 8>& res)
+{
+    res = _mm256_mullo_epi32(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint32_t
+always_inline void mul(clsvec<uint32_t, 16> const *lhs,
+    intrin_type_t<uint32_t, 16> const& rhs,
+    intrin_type_t<uint32_t, 16>& res)
+{
+    res = _mm512_mullo_epi32(lhs->data, rhs);
+}
+#endif
+
+// 128-bit float
+always_inline void mul(clsvec<float, 4> const *lhs,
+    intrin_type_t<float, 4> const& rhs,
+    intrin_type_t<float, 4>& res)
+{
+    res = _mm_mul_ps(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit float
+always_inline void mul(clsvec<float, 8> const *lhs,
+    intrin_type_t<float, 8> const& rhs,
+    intrin_type_t<float, 8>& res)
+{
+    res = _mm256_mul_ps(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit float
+always_inline void mul(clsvec<float, 16> const *lhs,
+    intrin_type_t<float, 16> const& rhs,
+    intrin_type_t<float, 16>& res)
+{
+    res = _mm512_mul_ps(lhs->data, rhs);
+}
+#endif
+
+always_inline intrin_type_t<uint64_t, 2>
+_mm_setr_epi64x(long long v0, long long v1)
+{
+    return _mm_set_epi64x(v1, v0);
+}
+
+// 128-bit int64_t
+always_inline void mul(clsvec<int64_t, 2> const *lhs,
+    intrin_type_t<int64_t, 2> const& rhs,
+    intrin_type_t<int64_t, 2>& res)
+{
+    res = _mm_setr_epi64x(
+        _mm_extract_epi64(lhs->data, 0) * _mm_extract_epi64(rhs, 0),
+        _mm_extract_epi64(lhs->data, 1) * _mm_extract_epi64(rhs, 1));
+}
+
+#if defined(__AVX2__)
+// 256-bit int64_t
+always_inline void mul(clsvec<int64_t, 4> const *lhs,
+    intrin_type_t<int64_t, 4> const& rhs,
+    intrin_type_t<int64_t, 4>& res)
+{
+    intrin_type_t<int64_t, 2> const lhs0 =
+        _mm256_extracti128_si256(lhs->data, 0);
+    intrin_type_t<int64_t, 2> const lhs1 =
+        _mm256_extracti128_si256(lhs->data, 1);
+    intrin_type_t<int64_t, 2> const rhs0 =
+        _mm256_extracti128_si256(rhs, 0);
+    intrin_type_t<int64_t, 2> const rhs1 =
+        _mm256_extracti128_si256(rhs, 1);
+    res = _mm256_setr_epi64x(
+        _mm_extract_epi64(lhs0, 0) * _mm_extract_epi64(rhs0, 0),
+        _mm_extract_epi64(lhs0, 1) * _mm_extract_epi64(rhs0, 1),
+        _mm_extract_epi64(lhs1, 0) * _mm_extract_epi64(rhs1, 0),
+        _mm_extract_epi64(lhs1, 1) * _mm_extract_epi64(rhs1, 1));
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int64_t
+always_inline void mul(clsvec<int64_t, 8> const *lhs,
+    intrin_type_t<int64_t, 8> const& rhs,
+    intrin_type_t<int64_t, 8>& res)
+{
+    res = _mm512_mullo_epi64(lhs->data, rhs);
+}
+#endif
+
+// 128-bit uint64_t
+always_inline void mul(clsvec<uint64_t, 2> const *lhs,
+    intrin_type_t<uint64_t, 2> const& rhs,
+    intrin_type_t<uint64_t, 2>& res)
+{
+    res = _mm_setr_epi64x(
+        (int)((uint32_t)_mm_extract_epi64(lhs->data, 0) *
+              (uint32_t)_mm_extract_epi64(rhs, 0)),
+        (int)((uint32_t)_mm_extract_epi64(lhs->data, 1) *
+              (uint32_t)_mm_extract_epi64(rhs, 1)));
+}
+
+#if defined(__AVX2__)
+// 256-bit uint64_t
+always_inline void mul(clsvec<uint64_t, 4> const *lhs,
+    intrin_type_t<uint64_t, 4> const& rhs,
+    intrin_type_t<uint64_t, 4>& res)
+{
+    intrin_type_t<uint64_t, 2> const lhs0 =
+        _mm256_extracti128_si256(lhs->data, 0);
+    intrin_type_t<uint64_t, 2> const lhs1 =
+        _mm256_extracti128_si256(lhs->data, 1);
+    intrin_type_t<uint64_t, 2> const rhs0 =
+        _mm256_extracti128_si256(rhs, 0);
+    intrin_type_t<uint64_t, 2> const rhs1 =
+        _mm256_extracti128_si256(rhs, 1);
+    res = _mm256_setr_epi64x(
+        (long long)((uint64_t)_mm_extract_epi64(lhs0, 0) *
+                    (uint64_t)_mm_extract_epi64(rhs0, 0)),
+        (long long)((uint64_t)_mm_extract_epi64(lhs0, 1) *
+                    (uint64_t)_mm_extract_epi64(rhs0, 1)),
+        (long long)((uint64_t)_mm_extract_epi64(lhs1, 0) *
+                    (uint64_t)_mm_extract_epi64(rhs1, 0)),
+        (long long)((uint64_t)_mm_extract_epi64(lhs1, 1) *
+                    (uint64_t)_mm_extract_epi64(rhs1, 1)));
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint64_t
+always_inline void mul(clsvec<uint64_t, 8> const *lhs,
+    intrin_type_t<uint64_t, 8> const& rhs,
+    intrin_type_t<uint64_t, 8>& res)
+{
+    res = _mm512_mullo_epi64(lhs->data, rhs);
+}
+#endif
+
+// 128-bit double
+always_inline void mul(clsvec<double, 2> const *lhs,
+    intrin_type_t<double, 2> const& rhs,
+    intrin_type_t<double, 2>& res)
+{
+    res = _mm_mul_pd(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit double
+always_inline void mul(clsvec<double, 4> const *lhs,
+    intrin_type_t<double, 4> const& rhs,
+    intrin_type_t<double, 4>& res)
+{
+    res = _mm256_mul_pd(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit double
+always_inline void mul(clsvec<double, 8> const *lhs,
+    intrin_type_t<double, 8> const& rhs,
+    intrin_type_t<double, 8>& res)
+{
+    res = _mm512_mul_pd(lhs->data, rhs);
+}
+#endif
+
+// 128-bit int8_t div
+always_inline void div(clsvec<int8_t, 16> const *lhs,
+    intrin_type_t<int8_t, 16> const& rhs,
+    intrin_type_t<int8_t, 16>& res)
+{
+    res = _mm_setr_epi8(
+        (int8_t)_mm_extract_epi8(lhs->data,  0) / (int8_t)_mm_extract_epi8(rhs,  0),
+        (int8_t)_mm_extract_epi8(lhs->data,  1) / (int8_t)_mm_extract_epi8(rhs,  1),
+        (int8_t)_mm_extract_epi8(lhs->data,  2) / (int8_t)_mm_extract_epi8(rhs,  2),
+        (int8_t)_mm_extract_epi8(lhs->data,  3) / (int8_t)_mm_extract_epi8(rhs,  3),
+        (int8_t)_mm_extract_epi8(lhs->data,  4) / (int8_t)_mm_extract_epi8(rhs,  4),
+        (int8_t)_mm_extract_epi8(lhs->data,  5) / (int8_t)_mm_extract_epi8(rhs,  5),
+        (int8_t)_mm_extract_epi8(lhs->data,  6) / (int8_t)_mm_extract_epi8(rhs,  6),
+        (int8_t)_mm_extract_epi8(lhs->data,  7) / (int8_t)_mm_extract_epi8(rhs,  7),
+        (int8_t)_mm_extract_epi8(lhs->data,  8) / (int8_t)_mm_extract_epi8(rhs,  8),
+        (int8_t)_mm_extract_epi8(lhs->data,  9) / (int8_t)_mm_extract_epi8(rhs,  9),
+        (int8_t)_mm_extract_epi8(lhs->data, 10) / (int8_t)_mm_extract_epi8(rhs, 10),
+        (int8_t)_mm_extract_epi8(lhs->data, 11) / (int8_t)_mm_extract_epi8(rhs, 11),
+        (int8_t)_mm_extract_epi8(lhs->data, 12) / (int8_t)_mm_extract_epi8(rhs, 12),
+        (int8_t)_mm_extract_epi8(lhs->data, 13) / (int8_t)_mm_extract_epi8(rhs, 13),
+        (int8_t)_mm_extract_epi8(lhs->data, 14) / (int8_t)_mm_extract_epi8(rhs, 14),
+        (int8_t)_mm_extract_epi8(lhs->data, 15) / (int8_t)_mm_extract_epi8(rhs, 15));
+}
+
+#if defined(__AVX2__)
+// 256-bit int8_t
+always_inline void div(clsvec<int8_t, 32> const *lhs,
+    intrin_type_t<int8_t, 32> const& rhs,
+    intrin_type_t<int8_t, 32>& res)
+{
+    intrin_type_t<int8_t, 16> lhs0 = _mm256_extracti128_si256(lhs->data, 0);
+    intrin_type_t<int8_t, 16> lhs1 = _mm256_extracti128_si256(lhs->data, 1);
+    intrin_type_t<int8_t, 16> rhs0 = _mm256_extracti128_si256(rhs, 0);
+    intrin_type_t<int8_t, 16> rhs1 = _mm256_extracti128_si256(rhs, 1);
+    res = _mm256_setr_epi8(
+        (int8_t)_mm_extract_epi8(lhs0,  0) / (int8_t)_mm_extract_epi8(rhs0,  0),
+        (int8_t)_mm_extract_epi8(lhs0,  1) / (int8_t)_mm_extract_epi8(rhs0,  1),
+        (int8_t)_mm_extract_epi8(lhs0,  2) / (int8_t)_mm_extract_epi8(rhs0,  2),
+        (int8_t)_mm_extract_epi8(lhs0,  3) / (int8_t)_mm_extract_epi8(rhs0,  3),
+        (int8_t)_mm_extract_epi8(lhs0,  4) / (int8_t)_mm_extract_epi8(rhs0,  4),
+        (int8_t)_mm_extract_epi8(lhs0,  5) / (int8_t)_mm_extract_epi8(rhs0,  5),
+        (int8_t)_mm_extract_epi8(lhs0,  6) / (int8_t)_mm_extract_epi8(rhs0,  6),
+        (int8_t)_mm_extract_epi8(lhs0,  7) / (int8_t)_mm_extract_epi8(rhs0,  7),
+        (int8_t)_mm_extract_epi8(lhs0,  8) / (int8_t)_mm_extract_epi8(rhs0,  8),
+        (int8_t)_mm_extract_epi8(lhs0,  9) / (int8_t)_mm_extract_epi8(rhs0,  9),
+        (int8_t)_mm_extract_epi8(lhs0, 10) / (int8_t)_mm_extract_epi8(rhs0, 10),
+        (int8_t)_mm_extract_epi8(lhs0, 11) / (int8_t)_mm_extract_epi8(rhs0, 11),
+        (int8_t)_mm_extract_epi8(lhs0, 12) / (int8_t)_mm_extract_epi8(rhs0, 12),
+        (int8_t)_mm_extract_epi8(lhs0, 13) / (int8_t)_mm_extract_epi8(rhs0, 13),
+        (int8_t)_mm_extract_epi8(lhs0, 14) / (int8_t)_mm_extract_epi8(rhs0, 14),
+        (int8_t)_mm_extract_epi8(lhs0, 15) / (int8_t)_mm_extract_epi8(rhs0, 15),
+        (int8_t)_mm_extract_epi8(lhs1,  0) / (int8_t)_mm_extract_epi8(rhs1,  0),
+        (int8_t)_mm_extract_epi8(lhs1,  1) / (int8_t)_mm_extract_epi8(rhs1,  1),
+        (int8_t)_mm_extract_epi8(lhs1,  2) / (int8_t)_mm_extract_epi8(rhs1,  2),
+        (int8_t)_mm_extract_epi8(lhs1,  3) / (int8_t)_mm_extract_epi8(rhs1,  3),
+        (int8_t)_mm_extract_epi8(lhs1,  4) / (int8_t)_mm_extract_epi8(rhs1,  4),
+        (int8_t)_mm_extract_epi8(lhs1,  5) / (int8_t)_mm_extract_epi8(rhs1,  5),
+        (int8_t)_mm_extract_epi8(lhs1,  6) / (int8_t)_mm_extract_epi8(rhs1,  6),
+        (int8_t)_mm_extract_epi8(lhs1,  7) / (int8_t)_mm_extract_epi8(rhs1,  7),
+        (int8_t)_mm_extract_epi8(lhs1,  8) / (int8_t)_mm_extract_epi8(rhs1,  8),
+        (int8_t)_mm_extract_epi8(lhs1,  9) / (int8_t)_mm_extract_epi8(rhs1,  9),
+        (int8_t)_mm_extract_epi8(lhs1, 10) / (int8_t)_mm_extract_epi8(rhs1, 10),
+        (int8_t)_mm_extract_epi8(lhs1, 11) / (int8_t)_mm_extract_epi8(rhs1, 11),
+        (int8_t)_mm_extract_epi8(lhs1, 12) / (int8_t)_mm_extract_epi8(rhs1, 12),
+        (int8_t)_mm_extract_epi8(lhs1, 13) / (int8_t)_mm_extract_epi8(rhs1, 13),
+        (int8_t)_mm_extract_epi8(lhs1, 14) / (int8_t)_mm_extract_epi8(rhs1, 14),
+        (int8_t)_mm_extract_epi8(lhs1, 15) / (int8_t)_mm_extract_epi8(rhs1, 15));
+}
+#endif
+
+#if defined(__AVX512F__)
+always_inline intrin_type_t<int8_t, 64> _mm512_setr_epi8(
+    char e63, char e62, char e61, char e60,
+    char e59, char e58, char e57, char e56,
+    char e55, char e54, char e53, char e52,
+    char e51, char e50, char e49, char e48,
+    char e47, char e46, char e45, char e44,
+    char e43, char e42, char e41, char e40,
+    char e39, char e38, char e37, char e36,
+    char e35, char e34, char e33, char e32,
+    char e31, char e30, char e29, char e28,
+    char e27, char e26, char e25, char e24,
+    char e23, char e22, char e21, char e20,
+    char e19, char e18, char e17, char e16,
+    char e15, char e14, char e13, char e12,
+    char e11, char e10, char  e9, char  e8,
+    char  e7, char  e6, char  e5, char  e4,
+    char  e3, char  e2, char  e1, char  e0)
+{
+    return _mm512_set_epi8(
+         e0,  e1,  e2,  e3,
+         e4,  e5,  e6,  e7,
+         e8,  e9, e10, e11,
+        e12, e13, e14, e15,
+        e16, e17, e18, e19,
+        e20, e21, e22, e23,
+        e24, e25, e26, e27,
+        e28, e29, e30, e31,
+        e32, e33, e34, e35,
+        e36, e37, e38, e39,
+        e40, e41, e42, e43,
+        e44, e45, e46, e47,
+        e48, e49, e50, e51,
+        e52, e53, e54, e55,
+        e56, e57, e58, e59,
+        e60, e61, e62, e63);
+}
+
+always_inline __m512i _mm512_setr_epi16(
+    char e31, char e30, char e29, char e28,
+    char e27, char e26, char e25, char e24,
+    char e23, char e22, char e21, char e20,
+    char e19, char e18, char e17, char e16,
+    char e15, char e14, char e13, char e12,
+    char e11, char e10, char  e9, char  e8,
+    char  e7, char  e6, char  e5, char  e4,
+    char  e3, char  e2, char  e1, char  e0)
+{
+    return _mm512_set_epi16(
+         e0,  e1,  e2,  e3,
+         e4,  e5,  e6,  e7,
+         e8,  e9, e10, e11,
+        e12, e13, e14, e15,
+        e16, e17, e18, e19,
+        e20, e21, e22, e23,
+        e24, e25, e26, e27,
+        e28, e29, e30, e31);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int8_t
+always_inline void div(clsvec<int8_t, 64> const *lhs,
+    intrin_type_t<int8_t, 64> const& rhs,
+    intrin_type_t<int8_t, 64>& res)
+{
+    intrin_type_t<int8_t, 16> lhs0 = _mm512_extracti32x4_epi32(lhs->data, 0);
+    intrin_type_t<int8_t, 16> lhs1 = _mm512_extracti32x4_epi32(lhs->data, 1);
+    intrin_type_t<int8_t, 16> lhs2 = _mm512_extracti32x4_epi32(lhs->data, 2);
+    intrin_type_t<int8_t, 16> lhs3 = _mm512_extracti32x4_epi32(lhs->data, 3);
+    intrin_type_t<int8_t, 16> rhs0 = _mm512_extracti32x4_epi32(rhs, 0);
+    intrin_type_t<int8_t, 16> rhs1 = _mm512_extracti32x4_epi32(rhs, 1);
+    intrin_type_t<int8_t, 16> rhs2 = _mm512_extracti32x4_epi32(rhs, 2);
+    intrin_type_t<int8_t, 16> rhs3 = _mm512_extracti32x4_epi32(rhs, 3);
+    res = _mm512_setr_epi8(
+        (int8_t)_mm_extract_epi8(lhs0,  0) /
+        (int8_t)_mm_extract_epi8(rhs0,  0),
+        (int8_t)_mm_extract_epi8(lhs0,  1) /
+        (int8_t)_mm_extract_epi8(rhs0,  1),
+        (int8_t)_mm_extract_epi8(lhs0,  2) /
+        (int8_t)_mm_extract_epi8(rhs0,  2),
+        (int8_t)_mm_extract_epi8(lhs0,  3) /
+        (int8_t)_mm_extract_epi8(rhs0,  3),
+        (int8_t)_mm_extract_epi8(lhs0,  4) /
+        (int8_t)_mm_extract_epi8(rhs0,  4),
+        (int8_t)_mm_extract_epi8(lhs0,  5) /
+        (int8_t)_mm_extract_epi8(rhs0,  5),
+        (int8_t)_mm_extract_epi8(lhs0,  6) /
+        (int8_t)_mm_extract_epi8(rhs0,  6),
+        (int8_t)_mm_extract_epi8(lhs0,  7) /
+        (int8_t)_mm_extract_epi8(rhs0,  7),
+        (int8_t)_mm_extract_epi8(lhs0,  8) /
+        (int8_t)_mm_extract_epi8(rhs0,  8),
+        (int8_t)_mm_extract_epi8(lhs0,  9) /
+        (int8_t)_mm_extract_epi8(rhs0,  9),
+        (int8_t)_mm_extract_epi8(lhs0, 10) /
+        (int8_t)_mm_extract_epi8(rhs0, 10),
+        (int8_t)_mm_extract_epi8(lhs0, 11) /
+        (int8_t)_mm_extract_epi8(rhs0, 11),
+        (int8_t)_mm_extract_epi8(lhs0, 12) /
+        (int8_t)_mm_extract_epi8(rhs0, 12),
+        (int8_t)_mm_extract_epi8(lhs0, 13) /
+        (int8_t)_mm_extract_epi8(rhs0, 13),
+        (int8_t)_mm_extract_epi8(lhs0, 14) /
+        (int8_t)_mm_extract_epi8(rhs0, 14),
+        (int8_t)_mm_extract_epi8(lhs0, 15) /
+        (int8_t)_mm_extract_epi8(rhs0, 15),
+        (int8_t)_mm_extract_epi8(lhs1,  0) /
+        (int8_t)_mm_extract_epi8(rhs1,  0),
+        (int8_t)_mm_extract_epi8(lhs1,  1) /
+        (int8_t)_mm_extract_epi8(rhs1,  1),
+        (int8_t)_mm_extract_epi8(lhs1,  2) /
+        (int8_t)_mm_extract_epi8(rhs1,  2),
+        (int8_t)_mm_extract_epi8(lhs1,  3) /
+        (int8_t)_mm_extract_epi8(rhs1,  3),
+        (int8_t)_mm_extract_epi8(lhs1,  4) /
+        (int8_t)_mm_extract_epi8(rhs1,  4),
+        (int8_t)_mm_extract_epi8(lhs1,  5) /
+        (int8_t)_mm_extract_epi8(rhs1,  5),
+        (int8_t)_mm_extract_epi8(lhs1,  6) /
+        (int8_t)_mm_extract_epi8(rhs1,  6),
+        (int8_t)_mm_extract_epi8(lhs1,  7) /
+        (int8_t)_mm_extract_epi8(rhs1,  7),
+        (int8_t)_mm_extract_epi8(lhs1,  8) /
+        (int8_t)_mm_extract_epi8(rhs1,  8),
+        (int8_t)_mm_extract_epi8(lhs1,  9) /
+        (int8_t)_mm_extract_epi8(rhs1,  9),
+        (int8_t)_mm_extract_epi8(lhs1, 10) /
+        (int8_t)_mm_extract_epi8(rhs1, 10),
+        (int8_t)_mm_extract_epi8(lhs1, 11) /
+        (int8_t)_mm_extract_epi8(rhs1, 11),
+        (int8_t)_mm_extract_epi8(lhs1, 12) /
+        (int8_t)_mm_extract_epi8(rhs1, 12),
+        (int8_t)_mm_extract_epi8(lhs1, 13) /
+        (int8_t)_mm_extract_epi8(rhs1, 13),
+        (int8_t)_mm_extract_epi8(lhs1, 14) /
+        (int8_t)_mm_extract_epi8(rhs1, 14),
+        (int8_t)_mm_extract_epi8(lhs1, 15) /
+        (int8_t)_mm_extract_epi8(rhs1, 15),
+        (int8_t)_mm_extract_epi8(lhs2,  0) /
+        (int8_t)_mm_extract_epi8(rhs2,  0),
+        (int8_t)_mm_extract_epi8(lhs2,  1) /
+        (int8_t)_mm_extract_epi8(rhs2,  1),
+        (int8_t)_mm_extract_epi8(lhs2,  2) /
+        (int8_t)_mm_extract_epi8(rhs2,  2),
+        (int8_t)_mm_extract_epi8(lhs2,  3) /
+        (int8_t)_mm_extract_epi8(rhs2,  3),
+        (int8_t)_mm_extract_epi8(lhs2,  4) /
+        (int8_t)_mm_extract_epi8(rhs2,  4),
+        (int8_t)_mm_extract_epi8(lhs2,  5) /
+        (int8_t)_mm_extract_epi8(rhs2,  5),
+        (int8_t)_mm_extract_epi8(lhs2,  6) /
+        (int8_t)_mm_extract_epi8(rhs2,  6),
+        (int8_t)_mm_extract_epi8(lhs2,  7) /
+        (int8_t)_mm_extract_epi8(rhs2,  7),
+        (int8_t)_mm_extract_epi8(lhs2,  8) /
+        (int8_t)_mm_extract_epi8(rhs2,  8),
+        (int8_t)_mm_extract_epi8(lhs2,  9) /
+        (int8_t)_mm_extract_epi8(rhs2,  9),
+        (int8_t)_mm_extract_epi8(lhs2, 10) /
+        (int8_t)_mm_extract_epi8(rhs2, 10),
+        (int8_t)_mm_extract_epi8(lhs2, 11) /
+        (int8_t)_mm_extract_epi8(rhs2, 11),
+        (int8_t)_mm_extract_epi8(lhs2, 12) /
+        (int8_t)_mm_extract_epi8(rhs2, 12),
+        (int8_t)_mm_extract_epi8(lhs2, 13) /
+        (int8_t)_mm_extract_epi8(rhs2, 13),
+        (int8_t)_mm_extract_epi8(lhs2, 14) /
+        (int8_t)_mm_extract_epi8(rhs2, 14),
+        (int8_t)_mm_extract_epi8(lhs2, 15) /
+        (int8_t)_mm_extract_epi8(rhs2, 15),
+        (int8_t)_mm_extract_epi8(lhs3,  0) /
+        (int8_t)_mm_extract_epi8(rhs3,  0),
+        (int8_t)_mm_extract_epi8(lhs3,  1) /
+        (int8_t)_mm_extract_epi8(rhs3,  1),
+        (int8_t)_mm_extract_epi8(lhs3,  2) /
+        (int8_t)_mm_extract_epi8(rhs3,  2),
+        (int8_t)_mm_extract_epi8(lhs3,  3) /
+        (int8_t)_mm_extract_epi8(rhs3,  3),
+        (int8_t)_mm_extract_epi8(lhs3,  4) /
+        (int8_t)_mm_extract_epi8(rhs3,  4),
+        (int8_t)_mm_extract_epi8(lhs3,  5) /
+        (int8_t)_mm_extract_epi8(rhs3,  5),
+        (int8_t)_mm_extract_epi8(lhs3,  6) /
+        (int8_t)_mm_extract_epi8(rhs3,  6),
+        (int8_t)_mm_extract_epi8(lhs3,  7) /
+        (int8_t)_mm_extract_epi8(rhs3,  7),
+        (int8_t)_mm_extract_epi8(lhs3,  8) /
+        (int8_t)_mm_extract_epi8(rhs3,  8),
+        (int8_t)_mm_extract_epi8(lhs3,  9) /
+        (int8_t)_mm_extract_epi8(rhs3,  9),
+        (int8_t)_mm_extract_epi8(lhs3, 10) /
+        (int8_t)_mm_extract_epi8(rhs3, 10),
+        (int8_t)_mm_extract_epi8(lhs3, 11) /
+        (int8_t)_mm_extract_epi8(rhs3, 11),
+        (int8_t)_mm_extract_epi8(lhs3, 12) /
+        (int8_t)_mm_extract_epi8(rhs3, 12),
+        (int8_t)_mm_extract_epi8(lhs3, 13) /
+        (int8_t)_mm_extract_epi8(rhs3, 13),
+        (int8_t)_mm_extract_epi8(lhs3, 14) /
+        (int8_t)_mm_extract_epi8(rhs3, 14),
+        (int8_t)_mm_extract_epi8(lhs3, 15) /
+        (int8_t)_mm_extract_epi8(rhs3, 15));
+}
+#endif
+
+// 128-bit uint8_t
+always_inline void div(clsvec<uint8_t, 16> const *lhs,
+    intrin_type_t<uint8_t, 16> const& rhs,
+    intrin_type_t<uint8_t, 16>& res)
+{
+    intrin_type_t<uint8_t, 16> lhs0 = lhs->data;
+    intrin_type_t<uint8_t, 16> rhs0 = rhs;
+    res = _mm_setr_epi8(
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  0) /
+               (uint8_t)_mm_extract_epi8(rhs0,  0)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  1) /
+               (uint8_t)_mm_extract_epi8(rhs0,  1)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  2) /
+               (uint8_t)_mm_extract_epi8(rhs0,  2)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  3) /
+               (uint8_t)_mm_extract_epi8(rhs0,  3)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  4) /
+               (uint8_t)_mm_extract_epi8(rhs0,  4)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  5) /
+               (uint8_t)_mm_extract_epi8(rhs0,  5)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  6) /
+               (uint8_t)_mm_extract_epi8(rhs0,  6)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  7) /
+               (uint8_t)_mm_extract_epi8(rhs0,  7)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  8) /
+               (uint8_t)_mm_extract_epi8(rhs0,  8)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  9) /
+               (uint8_t)_mm_extract_epi8(rhs0,  9)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 10) /
+               (uint8_t)_mm_extract_epi8(rhs0, 10)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 11) /
+               (uint8_t)_mm_extract_epi8(rhs0, 11)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 12) /
+               (uint8_t)_mm_extract_epi8(rhs0, 12)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 13) /
+               (uint8_t)_mm_extract_epi8(rhs0, 13)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 14) /
+               (uint8_t)_mm_extract_epi8(rhs0, 14)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 15) /
+               (uint8_t)_mm_extract_epi8(rhs0, 15)));
+}
+
+#if defined(__AVX2__)
+// 256-bit uint8_t
+always_inline void div(clsvec<uint8_t, 32> const *lhs,
+    intrin_type_t<uint8_t, 32> const& rhs,
+    intrin_type_t<uint8_t, 32>& res)
+{
+    intrin_type_t<uint8_t, 16> lhs0 =
+        _mm256_extracti128_si256(lhs->data, 0);
+    intrin_type_t<uint8_t, 16> lhs1 =
+        _mm256_extracti128_si256(lhs->data, 1);
+    intrin_type_t<uint8_t, 16> rhs0 =
+        _mm256_extracti128_si256(rhs, 0);
+    intrin_type_t<uint8_t, 16> rhs1 =
+        _mm256_extracti128_si256(rhs, 1);
+    res = _mm256_setr_epi8(
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  0) /
+               (uint8_t)_mm_extract_epi8(rhs0,  0)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  1) /
+               (uint8_t)_mm_extract_epi8(rhs0,  1)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  2) /
+               (uint8_t)_mm_extract_epi8(rhs0,  2)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  3) /
+               (uint8_t)_mm_extract_epi8(rhs0,  3)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  4) /
+               (uint8_t)_mm_extract_epi8(rhs0,  4)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  5) /
+               (uint8_t)_mm_extract_epi8(rhs0,  5)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  6) /
+               (uint8_t)_mm_extract_epi8(rhs0,  6)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  7) /
+               (uint8_t)_mm_extract_epi8(rhs0,  7)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  8) /
+               (uint8_t)_mm_extract_epi8(rhs0,  8)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  9) /
+               (uint8_t)_mm_extract_epi8(rhs0,  9)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 10) /
+               (uint8_t)_mm_extract_epi8(rhs0, 10)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 11) /
+               (uint8_t)_mm_extract_epi8(rhs0, 11)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 12) /
+               (uint8_t)_mm_extract_epi8(rhs0, 12)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 13) /
+               (uint8_t)_mm_extract_epi8(rhs0, 13)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 14) /
+               (uint8_t)_mm_extract_epi8(rhs0, 14)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 15) /
+               (uint8_t)_mm_extract_epi8(rhs0, 15)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  0) /
+               (uint8_t)_mm_extract_epi8(rhs1,  0)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  1) /
+               (uint8_t)_mm_extract_epi8(rhs1,  1)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  2) /
+               (uint8_t)_mm_extract_epi8(rhs1,  2)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  3) /
+               (uint8_t)_mm_extract_epi8(rhs1,  3)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  4) /
+               (uint8_t)_mm_extract_epi8(rhs1,  4)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  5) /
+               (uint8_t)_mm_extract_epi8(rhs1,  5)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  6) /
+               (uint8_t)_mm_extract_epi8(rhs1,  6)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  7) /
+               (uint8_t)_mm_extract_epi8(rhs1,  7)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  8) /
+               (uint8_t)_mm_extract_epi8(rhs1,  8)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  9) /
+               (uint8_t)_mm_extract_epi8(rhs1,  9)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 10) /
+               (uint8_t)_mm_extract_epi8(rhs1, 10)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 11) /
+               (uint8_t)_mm_extract_epi8(rhs1, 11)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 12) /
+               (uint8_t)_mm_extract_epi8(rhs1, 12)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 13) /
+               (uint8_t)_mm_extract_epi8(rhs1, 13)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 14) /
+               (uint8_t)_mm_extract_epi8(rhs1, 14)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 15) /
+               (uint8_t)_mm_extract_epi8(rhs1, 15)));
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint8_t
+always_inline void div(clsvec<uint8_t, 64> const *lhs,
+    intrin_type_t<uint8_t, 64> const& rhs,
+    intrin_type_t<uint8_t, 64>& res)
+{
+    intrin_type_t<uint8_t, 16> lhs0 =
+        _mm512_extracti32x4_epi32(lhs->data, 0);
+    intrin_type_t<uint8_t, 16> lhs1 =
+        _mm512_extracti32x4_epi32(lhs->data, 1);
+    intrin_type_t<uint8_t, 16> lhs2 =
+        _mm512_extracti32x4_epi32(lhs->data, 2);
+    intrin_type_t<uint8_t, 16> lhs3 =
+        _mm512_extracti32x4_epi32(lhs->data, 3);
+    intrin_type_t<int8_t, 16> rhs0 =
+        _mm512_extracti32x4_epi32(rhs, 0);
+    intrin_type_t<int8_t, 16> rhs1 =
+        _mm512_extracti32x4_epi32(rhs, 1);
+    intrin_type_t<int8_t, 16> rhs2 =
+        _mm512_extracti32x4_epi32(rhs, 2);
+    intrin_type_t<int8_t, 16> rhs3 =
+        _mm512_extracti32x4_epi32(rhs, 3);
+    res = _mm512_setr_epi8(
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  0) /
+               (uint8_t)_mm_extract_epi8(rhs0,  0)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  1) /
+               (uint8_t)_mm_extract_epi8(rhs0,  1)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  2) /
+               (uint8_t)_mm_extract_epi8(rhs0,  2)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  3) /
+               (uint8_t)_mm_extract_epi8(rhs0,  3)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  4) /
+               (uint8_t)_mm_extract_epi8(rhs0,  4)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  5) /
+               (uint8_t)_mm_extract_epi8(rhs0,  5)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  6) /
+               (uint8_t)_mm_extract_epi8(rhs0,  6)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  7) /
+               (uint8_t)_mm_extract_epi8(rhs0,  7)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  8) /
+               (uint8_t)_mm_extract_epi8(rhs0,  8)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0,  9) /
+               (uint8_t)_mm_extract_epi8(rhs0,  9)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 10) /
+               (uint8_t)_mm_extract_epi8(rhs0, 10)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 11) /
+               (uint8_t)_mm_extract_epi8(rhs0, 11)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 12) /
+               (uint8_t)_mm_extract_epi8(rhs0, 12)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 13) /
+               (uint8_t)_mm_extract_epi8(rhs0, 13)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 14) /
+               (uint8_t)_mm_extract_epi8(rhs0, 14)),
+        (char)((uint8_t)_mm_extract_epi8(lhs0, 15) /
+               (uint8_t)_mm_extract_epi8(rhs0, 15)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  0) /
+               (uint8_t)_mm_extract_epi8(rhs1,  0)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  1) /
+               (uint8_t)_mm_extract_epi8(rhs1,  1)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  2) /
+               (uint8_t)_mm_extract_epi8(rhs1,  2)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  3) /
+               (uint8_t)_mm_extract_epi8(rhs1,  3)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  4) /
+               (uint8_t)_mm_extract_epi8(rhs1,  4)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  5) /
+               (uint8_t)_mm_extract_epi8(rhs1,  5)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  6) /
+               (uint8_t)_mm_extract_epi8(rhs1,  6)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  7) /
+               (uint8_t)_mm_extract_epi8(rhs1,  7)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  8) /
+               (uint8_t)_mm_extract_epi8(rhs1,  8)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1,  9) /
+               (uint8_t)_mm_extract_epi8(rhs1,  9)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 10) /
+               (uint8_t)_mm_extract_epi8(rhs1, 10)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 11) /
+               (uint8_t)_mm_extract_epi8(rhs1, 11)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 12) /
+               (uint8_t)_mm_extract_epi8(rhs1, 12)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 13) /
+               (uint8_t)_mm_extract_epi8(rhs1, 13)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 14) /
+               (uint8_t)_mm_extract_epi8(rhs1, 14)),
+        (char)((uint8_t)_mm_extract_epi8(lhs1, 15) /
+               (uint8_t)_mm_extract_epi8(rhs1, 15)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  0) /
+               (uint8_t)_mm_extract_epi8(rhs2,  0)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  1) /
+               (uint8_t)_mm_extract_epi8(rhs2,  1)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  2) /
+               (uint8_t)_mm_extract_epi8(rhs2,  2)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  3) /
+               (uint8_t)_mm_extract_epi8(rhs2,  3)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  4) /
+               (uint8_t)_mm_extract_epi8(rhs2,  4)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  5) /
+               (uint8_t)_mm_extract_epi8(rhs2,  5)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  6) /
+               (uint8_t)_mm_extract_epi8(rhs2,  6)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  7) /
+               (uint8_t)_mm_extract_epi8(rhs2,  7)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  8) /
+               (uint8_t)_mm_extract_epi8(rhs2,  8)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2,  9) /
+               (uint8_t)_mm_extract_epi8(rhs2,  9)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2, 10) /
+               (uint8_t)_mm_extract_epi8(rhs2, 10)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2, 11) /
+               (uint8_t)_mm_extract_epi8(rhs2, 11)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2, 12) /
+               (uint8_t)_mm_extract_epi8(rhs2, 12)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2, 13) /
+               (uint8_t)_mm_extract_epi8(rhs2, 13)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2, 14) /
+               (uint8_t)_mm_extract_epi8(rhs2, 14)),
+        (char)((uint8_t)_mm_extract_epi8(lhs2, 15) /
+               (uint8_t)_mm_extract_epi8(rhs2, 15)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  0) /
+               (uint8_t)_mm_extract_epi8(rhs3,  0)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  1) /
+               (uint8_t)_mm_extract_epi8(rhs3,  1)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  2) /
+               (uint8_t)_mm_extract_epi8(rhs3,  2)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  3) /
+               (uint8_t)_mm_extract_epi8(rhs3,  3)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  4) /
+               (uint8_t)_mm_extract_epi8(rhs3,  4)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  5) /
+               (uint8_t)_mm_extract_epi8(rhs3,  5)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  6) /
+               (uint8_t)_mm_extract_epi8(rhs3,  6)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  7) /
+               (uint8_t)_mm_extract_epi8(rhs3,  7)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  8) /
+               (uint8_t)_mm_extract_epi8(rhs3,  8)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3,  9) /
+               (uint8_t)_mm_extract_epi8(rhs3,  9)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3, 10) /
+               (uint8_t)_mm_extract_epi8(rhs3, 10)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3, 11) /
+               (uint8_t)_mm_extract_epi8(rhs3, 11)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3, 12) /
+               (uint8_t)_mm_extract_epi8(rhs3, 12)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3, 13) /
+               (uint8_t)_mm_extract_epi8(rhs3, 13)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3, 14) /
+               (uint8_t)_mm_extract_epi8(rhs3, 14)),
+        (char)((uint8_t)_mm_extract_epi8(lhs3, 15) /
+               (uint8_t)_mm_extract_epi8(rhs3, 15)));
+}
+#endif
+
+// 128-bit int16_t
+always_inline void div(clsvec<int16_t, 8> const *lhs,
+    intrin_type_t<int16_t, 8> const& rhs,
+    intrin_type_t<int16_t, 8>& res)
+{
+    intrin_type_t<int16_t, 8> lhs0 = lhs->data;
+    res = _mm_setr_epi16(
+        _mm_extract_epi16(lhs0, 0) / _mm_extract_epi16(rhs, 0),
+        _mm_extract_epi16(lhs0, 1) / _mm_extract_epi16(rhs, 1),
+        _mm_extract_epi16(lhs0, 2) / _mm_extract_epi16(rhs, 2),
+        _mm_extract_epi16(lhs0, 3) / _mm_extract_epi16(rhs, 3),
+        _mm_extract_epi16(lhs0, 4) / _mm_extract_epi16(rhs, 4),
+        _mm_extract_epi16(lhs0, 5) / _mm_extract_epi16(rhs, 5),
+        _mm_extract_epi16(lhs0, 6) / _mm_extract_epi16(rhs, 6),
+        _mm_extract_epi16(lhs0, 7) / _mm_extract_epi16(rhs, 7));
+}
+
+#if defined(__AVX2__)
+// 256-bit int16_t
+always_inline void div(clsvec<int16_t, 16> const *lhs,
+    intrin_type_t<int16_t, 16> const& rhs,
+    intrin_type_t<int16_t, 16>& res)
+{
+    intrin_type_t<int16_t, 8> const& lhs0 =
+        _mm256_extracti128_si256(lhs->data, 0);
+    intrin_type_t<int16_t, 8> const& lhs1 =
+        _mm256_extracti128_si256(lhs->data, 1);
+    intrin_type_t<int16_t, 8> const& rhs0 =
+        _mm256_extracti128_si256(rhs, 0);
+    intrin_type_t<int16_t, 8> const& rhs1 =
+        _mm256_extracti128_si256(rhs, 1);
+    res = _mm256_setr_epi16(
+        _mm_extract_epi16(lhs0, 0) / _mm_extract_epi16(rhs0, 0),
+        _mm_extract_epi16(lhs0, 1) / _mm_extract_epi16(rhs0, 1),
+        _mm_extract_epi16(lhs0, 2) / _mm_extract_epi16(rhs0, 2),
+        _mm_extract_epi16(lhs0, 3) / _mm_extract_epi16(rhs0, 3),
+        _mm_extract_epi16(lhs0, 4) / _mm_extract_epi16(rhs0, 4),
+        _mm_extract_epi16(lhs0, 5) / _mm_extract_epi16(rhs0, 5),
+        _mm_extract_epi16(lhs0, 6) / _mm_extract_epi16(rhs0, 6),
+        _mm_extract_epi16(lhs0, 7) / _mm_extract_epi16(rhs0, 7),
+        _mm_extract_epi16(lhs1, 0) / _mm_extract_epi16(rhs1, 0),
+        _mm_extract_epi16(lhs1, 1) / _mm_extract_epi16(rhs1, 1),
+        _mm_extract_epi16(lhs1, 2) / _mm_extract_epi16(rhs1, 2),
+        _mm_extract_epi16(lhs1, 3) / _mm_extract_epi16(rhs1, 3),
+        _mm_extract_epi16(lhs1, 4) / _mm_extract_epi16(rhs1, 4),
+        _mm_extract_epi16(lhs1, 5) / _mm_extract_epi16(rhs1, 5),
+        _mm_extract_epi16(lhs1, 6) / _mm_extract_epi16(rhs1, 6),
+        _mm_extract_epi16(lhs1, 7) / _mm_extract_epi16(rhs1, 7));
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int16_t
+always_inline void div(clsvec<int16_t, 32> const *lhs,
+    intrin_type_t<int16_t, 32> const& rhs,
+    intrin_type_t<int16_t, 32>& res)
+{
+    intrin_type_t<int16_t, 8> const& lhs0 =
+        _mm512_extracti32x4_epi32(lhs->data, 0);
+    intrin_type_t<int16_t, 8> const& lhs1 =
+        _mm512_extracti32x4_epi32(lhs->data, 1);
+    intrin_type_t<int16_t, 8> const& lhs2 =
+        _mm512_extracti32x4_epi32(lhs->data, 2);
+    intrin_type_t<int16_t, 8> const& lhs3 =
+        _mm512_extracti32x4_epi32(lhs->data, 3);
+    intrin_type_t<int16_t, 8> const& rhs0 =
+        _mm512_extracti32x4_epi32(rhs, 0);
+    intrin_type_t<int16_t, 8> const& rhs1 =
+        _mm512_extracti32x4_epi32(rhs, 1);
+    intrin_type_t<int16_t, 8> const& rhs2 =
+        _mm512_extracti32x4_epi32(rhs, 2);
+    intrin_type_t<int16_t, 8> const& rhs3 =
+        _mm512_extracti32x4_epi32(rhs, 3);
+    res = _mm512_setr_epi16(
+        _mm_extract_epi16(lhs0, 0) / _mm_extract_epi16(rhs0, 0),
+        _mm_extract_epi16(lhs0, 1) / _mm_extract_epi16(rhs0, 1),
+        _mm_extract_epi16(lhs0, 2) / _mm_extract_epi16(rhs0, 2),
+        _mm_extract_epi16(lhs0, 3) / _mm_extract_epi16(rhs0, 3),
+        _mm_extract_epi16(lhs0, 4) / _mm_extract_epi16(rhs0, 4),
+        _mm_extract_epi16(lhs0, 5) / _mm_extract_epi16(rhs0, 5),
+        _mm_extract_epi16(lhs0, 6) / _mm_extract_epi16(rhs0, 6),
+        _mm_extract_epi16(lhs0, 7) / _mm_extract_epi16(rhs0, 7),
+        _mm_extract_epi16(lhs1, 0) / _mm_extract_epi16(rhs1, 0),
+        _mm_extract_epi16(lhs1, 1) / _mm_extract_epi16(rhs1, 1),
+        _mm_extract_epi16(lhs1, 2) / _mm_extract_epi16(rhs1, 2),
+        _mm_extract_epi16(lhs1, 3) / _mm_extract_epi16(rhs1, 3),
+        _mm_extract_epi16(lhs1, 4) / _mm_extract_epi16(rhs1, 4),
+        _mm_extract_epi16(lhs1, 5) / _mm_extract_epi16(rhs1, 5),
+        _mm_extract_epi16(lhs1, 6) / _mm_extract_epi16(rhs1, 6),
+        _mm_extract_epi16(lhs1, 7) / _mm_extract_epi16(rhs1, 7),
+        _mm_extract_epi16(lhs2, 0) / _mm_extract_epi16(rhs2, 0),
+        _mm_extract_epi16(lhs2, 1) / _mm_extract_epi16(rhs2, 1),
+        _mm_extract_epi16(lhs2, 2) / _mm_extract_epi16(rhs2, 2),
+        _mm_extract_epi16(lhs2, 3) / _mm_extract_epi16(rhs2, 3),
+        _mm_extract_epi16(lhs2, 4) / _mm_extract_epi16(rhs2, 4),
+        _mm_extract_epi16(lhs2, 5) / _mm_extract_epi16(rhs2, 5),
+        _mm_extract_epi16(lhs2, 6) / _mm_extract_epi16(rhs2, 6),
+        _mm_extract_epi16(lhs2, 7) / _mm_extract_epi16(rhs2, 7),
+        _mm_extract_epi16(lhs3, 0) / _mm_extract_epi16(rhs3, 0),
+        _mm_extract_epi16(lhs3, 1) / _mm_extract_epi16(rhs3, 1),
+        _mm_extract_epi16(lhs3, 2) / _mm_extract_epi16(rhs3, 2),
+        _mm_extract_epi16(lhs3, 3) / _mm_extract_epi16(rhs3, 3),
+        _mm_extract_epi16(lhs3, 4) / _mm_extract_epi16(rhs3, 4),
+        _mm_extract_epi16(lhs3, 5) / _mm_extract_epi16(rhs3, 5),
+        _mm_extract_epi16(lhs3, 6) / _mm_extract_epi16(rhs3, 6),
+        _mm_extract_epi16(lhs3, 7) / _mm_extract_epi16(rhs3, 7));
+}
+#endif
+
+// 128-bit uint16_t
+always_inline void div(clsvec<uint16_t, 8> const *lhs,
+    intrin_type_t<uint16_t, 8> const& rhs,
+    intrin_type_t<uint16_t, 8>& res)
+{
+    intrin_type_t<uint16_t, 8> const& lhs0 = lhs->data;
+    res = _mm_setr_epi16(
+        _mm_extract_epi16(lhs0, 0) / _mm_extract_epi16(rhs, 0),
+        _mm_extract_epi16(lhs0, 1) / _mm_extract_epi16(rhs, 1),
+        _mm_extract_epi16(lhs0, 2) / _mm_extract_epi16(rhs, 2),
+        _mm_extract_epi16(lhs0, 3) / _mm_extract_epi16(rhs, 3),
+        _mm_extract_epi16(lhs0, 4) / _mm_extract_epi16(rhs, 4),
+        _mm_extract_epi16(lhs0, 5) / _mm_extract_epi16(rhs, 5),
+        _mm_extract_epi16(lhs0, 6) / _mm_extract_epi16(rhs, 6),
+        _mm_extract_epi16(lhs0, 7) / _mm_extract_epi16(rhs, 7));
+}
+
+#if defined(__AVX2__)
+// 256-bit uint16_t
+always_inline void div(clsvec<uint16_t, 16> const *lhs,
+    intrin_type_t<uint16_t, 16> const& rhs,
+    intrin_type_t<uint16_t, 16>& res)
+{
+    intrin_type_t<uint16_t, 8> lhs0 =
+        _mm256_extracti128_si256(lhs->data, 0);
+    intrin_type_t<uint16_t, 8> lhs1 =
+        _mm256_extracti128_si256(lhs->data, 1);
+    intrin_type_t<uint16_t, 8> rhs0 =
+        _mm256_extracti128_si256(rhs, 0);
+    intrin_type_t<uint16_t, 8> rhs1 =
+        _mm256_extracti128_si256(rhs, 1);
+    res = _mm256_setr_epi16(
+        _mm_extract_epi16(lhs0, 0) / _mm_extract_epi16(rhs0, 0),
+        _mm_extract_epi16(lhs0, 1) / _mm_extract_epi16(rhs0, 1),
+        _mm_extract_epi16(lhs0, 2) / _mm_extract_epi16(rhs0, 2),
+        _mm_extract_epi16(lhs0, 3) / _mm_extract_epi16(rhs0, 3),
+        _mm_extract_epi16(lhs0, 4) / _mm_extract_epi16(rhs0, 4),
+        _mm_extract_epi16(lhs0, 5) / _mm_extract_epi16(rhs0, 5),
+        _mm_extract_epi16(lhs0, 6) / _mm_extract_epi16(rhs0, 6),
+        _mm_extract_epi16(lhs0, 7) / _mm_extract_epi16(rhs0, 7),
+        _mm_extract_epi16(lhs1, 0) / _mm_extract_epi16(rhs1, 0),
+        _mm_extract_epi16(lhs1, 1) / _mm_extract_epi16(rhs1, 1),
+        _mm_extract_epi16(lhs1, 2) / _mm_extract_epi16(rhs1, 2),
+        _mm_extract_epi16(lhs1, 3) / _mm_extract_epi16(rhs1, 3),
+        _mm_extract_epi16(lhs1, 4) / _mm_extract_epi16(rhs1, 4),
+        _mm_extract_epi16(lhs1, 5) / _mm_extract_epi16(rhs1, 5),
+        _mm_extract_epi16(lhs1, 6) / _mm_extract_epi16(rhs1, 6),
+        _mm_extract_epi16(lhs1, 7) / _mm_extract_epi16(rhs1, 7));
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint16_t
+always_inline void div(clsvec<uint16_t, 32> const *lhs,
+    intrin_type_t<uint16_t, 32> const& rhs,
+    intrin_type_t<uint16_t, 32>& res)
+{
+    intrin_type_t<uint16_t, 8> lhs0 =
+        _mm512_extracti32x4_epi32(lhs->data, 0);
+    intrin_type_t<uint16_t, 8> lhs1 =
+        _mm512_extracti32x4_epi32(lhs->data, 1);
+    intrin_type_t<uint16_t, 8> lhs2 =
+        _mm512_extracti32x4_epi32(lhs->data, 2);
+    intrin_type_t<uint16_t, 8> lhs3 =
+        _mm512_extracti32x4_epi32(lhs->data, 3);
+    intrin_type_t<uint16_t, 8> rhs0 =
+        _mm512_extracti32x4_epi32(rhs, 0);
+    intrin_type_t<uint16_t, 8> rhs1 =
+        _mm512_extracti32x4_epi32(rhs, 1);
+    intrin_type_t<uint16_t, 8> rhs2 =
+        _mm512_extracti32x4_epi32(rhs, 2);
+    intrin_type_t<uint16_t, 8> rhs3 =
+        _mm512_extracti32x4_epi32(rhs, 3);
+    res = _mm512_setr_epi16(
+        (uint16_t)_mm_extract_epi16(lhs0, 0) /
+        (uint16_t)_mm_extract_epi16(rhs0, 0),
+        (uint16_t)_mm_extract_epi16(lhs0, 1) /
+        (uint16_t)_mm_extract_epi16(rhs0, 1),
+        (uint16_t)_mm_extract_epi16(lhs0, 2) /
+        (uint16_t)_mm_extract_epi16(rhs0, 2),
+        (uint16_t)_mm_extract_epi16(lhs0, 3) /
+        (uint16_t)_mm_extract_epi16(rhs0, 3),
+        (uint16_t)_mm_extract_epi16(lhs0, 4) /
+        (uint16_t)_mm_extract_epi16(rhs0, 4),
+        (uint16_t)_mm_extract_epi16(lhs0, 5) /
+        (uint16_t)_mm_extract_epi16(rhs0, 5),
+        (uint16_t)_mm_extract_epi16(lhs0, 6) /
+        (uint16_t)_mm_extract_epi16(rhs0, 6),
+        (uint16_t)_mm_extract_epi16(lhs0, 7) /
+        (uint16_t)_mm_extract_epi16(rhs0, 7),
+        (uint16_t)_mm_extract_epi16(lhs1, 0) /
+        (uint16_t)_mm_extract_epi16(rhs1, 0),
+        (uint16_t)_mm_extract_epi16(lhs1, 1) /
+        (uint16_t)_mm_extract_epi16(rhs1, 1),
+        (uint16_t)_mm_extract_epi16(lhs1, 2) /
+        (uint16_t)_mm_extract_epi16(rhs1, 2),
+        (uint16_t)_mm_extract_epi16(lhs1, 3) /
+        (uint16_t)_mm_extract_epi16(rhs1, 3),
+        (uint16_t)_mm_extract_epi16(lhs1, 4) /
+        (uint16_t)_mm_extract_epi16(rhs1, 4),
+        (uint16_t)_mm_extract_epi16(lhs1, 5) /
+        (uint16_t)_mm_extract_epi16(rhs1, 5),
+        (uint16_t)_mm_extract_epi16(lhs1, 6) /
+        (uint16_t)_mm_extract_epi16(rhs1, 6),
+        (uint16_t)_mm_extract_epi16(lhs1, 7) /
+        (uint16_t)_mm_extract_epi16(rhs1, 7),
+        (uint16_t)_mm_extract_epi16(lhs2, 0) /
+        (uint16_t)_mm_extract_epi16(rhs2, 0),
+        (uint16_t)_mm_extract_epi16(lhs2, 1) /
+        (uint16_t)_mm_extract_epi16(rhs2, 1),
+        (uint16_t)_mm_extract_epi16(lhs2, 2) /
+        (uint16_t)_mm_extract_epi16(rhs2, 2),
+        (uint16_t)_mm_extract_epi16(lhs2, 3) /
+        (uint16_t)_mm_extract_epi16(rhs2, 3),
+        (uint16_t)_mm_extract_epi16(lhs2, 4) /
+        (uint16_t)_mm_extract_epi16(rhs2, 4),
+        (uint16_t)_mm_extract_epi16(lhs2, 5) /
+        (uint16_t)_mm_extract_epi16(rhs2, 5),
+        (uint16_t)_mm_extract_epi16(lhs2, 6) /
+        (uint16_t)_mm_extract_epi16(rhs2, 6),
+        (uint16_t)_mm_extract_epi16(lhs2, 7) /
+        (uint16_t)_mm_extract_epi16(rhs2, 7),
+        (uint16_t)_mm_extract_epi16(lhs3, 0) /
+        (uint16_t)_mm_extract_epi16(rhs3, 0),
+        (uint16_t)_mm_extract_epi16(lhs3, 1) /
+        (uint16_t)_mm_extract_epi16(rhs3, 1),
+        (uint16_t)_mm_extract_epi16(lhs3, 2) /
+        (uint16_t)_mm_extract_epi16(rhs3, 2),
+        (uint16_t)_mm_extract_epi16(lhs3, 3) /
+        (uint16_t)_mm_extract_epi16(rhs3, 3),
+        (uint16_t)_mm_extract_epi16(lhs3, 4) /
+        (uint16_t)_mm_extract_epi16(rhs3, 4),
+        (uint16_t)_mm_extract_epi16(lhs3, 5) /
+        (uint16_t)_mm_extract_epi16(rhs3, 5),
+        (uint16_t)_mm_extract_epi16(lhs3, 6) /
+        (uint16_t)_mm_extract_epi16(rhs3, 6),
+        (uint16_t)_mm_extract_epi16(lhs3, 7) /
+        (uint16_t)_mm_extract_epi16(rhs3, 7));
+}
+#endif
+
+// 128-bit int32_t
+always_inline void div(clsvec<int32_t, 4> const *lhs,
+    intrin_type_t<int32_t, 4> const& rhs,
+    intrin_type_t<int32_t, 4>& res)
+{
+    intrin_type_t<int32_t, 4> const& lhs0 = lhs->data;
+    intrin_type_t<int32_t, 4> const& rhs0 = rhs;
+    res = _mm_setr_epi32(
+        (int32_t)_mm_extract_epi32(lhs0, 0) /
+        (int32_t)_mm_extract_epi32(rhs0, 0),
+        (int32_t)_mm_extract_epi32(lhs0, 1) /
+        (int32_t)_mm_extract_epi32(rhs0, 1),
+        (int32_t)_mm_extract_epi32(lhs0, 2) /
+        (int32_t)_mm_extract_epi32(rhs0, 2),
+        (int32_t)_mm_extract_epi32(lhs0, 3) /
+        (int32_t)_mm_extract_epi32(rhs0, 3));
+}
+
+#if defined(__AVX2__)
+// 256-bit int32_t
+always_inline void div(clsvec<int32_t, 8> const *lhs,
+    intrin_type_t<int32_t, 8> const& rhs,
+    intrin_type_t<int32_t, 8>& res)
+{
+    intrin_type_t<int32_t, 4> lhs0 =
+        _mm256_extracti128_si256(lhs->data, 0);
+    intrin_type_t<int32_t, 4> lhs1 =
+        _mm256_extracti128_si256(lhs->data, 1);
+    intrin_type_t<int32_t, 4> rhs0 =
+        _mm256_extracti128_si256(rhs, 0);
+    intrin_type_t<int32_t, 4> rhs1 =
+        _mm256_extracti128_si256(rhs, 1);
+    res = _mm256_setr_epi32(
+        (int32_t)_mm_extract_epi32(lhs0, 0) /
+        (int32_t)_mm_extract_epi32(rhs0, 0),
+        (int32_t)_mm_extract_epi32(lhs0, 1) /
+        (int32_t)_mm_extract_epi32(rhs0, 1),
+        (int32_t)_mm_extract_epi32(lhs0, 2) /
+        (int32_t)_mm_extract_epi32(rhs0, 2),
+        (int32_t)_mm_extract_epi32(lhs0, 3) /
+        (int32_t)_mm_extract_epi32(rhs0, 3),
+        (int32_t)_mm_extract_epi32(lhs1, 0) /
+        (int32_t)_mm_extract_epi32(rhs1, 0),
+        (int32_t)_mm_extract_epi32(lhs1, 1) /
+        (int32_t)_mm_extract_epi32(rhs1, 1),
+        (int32_t)_mm_extract_epi32(lhs1, 2) /
+        (int32_t)_mm_extract_epi32(rhs1, 2),
+        (int32_t)_mm_extract_epi32(lhs1, 3) /
+        (int32_t)_mm_extract_epi32(rhs1, 3));
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int32_t
+always_inline void div(clsvec<int32_t, 16> const *lhs,
+    intrin_type_t<int32_t, 16> const& rhs,
+    intrin_type_t<int32_t, 16>& res)
+{
+    intrin_type_t<int32_t, 4> lhs0 =
+        _mm512_extracti32x4_epi32(lhs->data, 0);
+    intrin_type_t<int32_t, 4> lhs1 =
+        _mm512_extracti32x4_epi32(lhs->data, 1);
+    intrin_type_t<int32_t, 4> lhs2 =
+        _mm512_extracti32x4_epi32(lhs->data, 2);
+    intrin_type_t<int32_t, 4> lhs3 =
+        _mm512_extracti32x4_epi32(lhs->data, 3);
+    intrin_type_t<int32_t, 4> rhs0 =
+        _mm512_extracti32x4_epi32(rhs, 0);
+    intrin_type_t<int32_t, 4> rhs1 =
+        _mm512_extracti32x4_epi32(rhs, 1);
+    intrin_type_t<int32_t, 4> rhs2 =
+        _mm512_extracti32x4_epi32(rhs, 2);
+    intrin_type_t<int32_t, 4> rhs3 =
+        _mm512_extracti32x4_epi32(rhs, 3);
+    res = _mm512_setr_epi32(
+        (int32_t)_mm_extract_epi32(lhs0, 0) /
+        (int32_t)_mm_extract_epi32(rhs0, 0),
+        (int32_t)_mm_extract_epi32(lhs0, 1) /
+        (int32_t)_mm_extract_epi32(rhs0, 1),
+        (int32_t)_mm_extract_epi32(lhs0, 2) /
+        (int32_t)_mm_extract_epi32(rhs0, 2),
+        (int32_t)_mm_extract_epi32(lhs0, 3) /
+        (int32_t)_mm_extract_epi32(rhs0, 3),
+        (int32_t)_mm_extract_epi32(lhs1, 0) /
+        (int32_t)_mm_extract_epi32(rhs1, 0),
+        (int32_t)_mm_extract_epi32(lhs1, 1) /
+        (int32_t)_mm_extract_epi32(rhs1, 1),
+        (int32_t)_mm_extract_epi32(lhs1, 2) /
+        (int32_t)_mm_extract_epi32(rhs1, 2),
+        (int32_t)_mm_extract_epi32(lhs1, 3) /
+        (int32_t)_mm_extract_epi32(rhs1, 3),
+        (int32_t)_mm_extract_epi32(lhs2, 0) /
+        (int32_t)_mm_extract_epi32(rhs2, 0),
+        (int32_t)_mm_extract_epi32(lhs2, 1) /
+        (int32_t)_mm_extract_epi32(rhs2, 1),
+        (int32_t)_mm_extract_epi32(lhs2, 2) /
+        (int32_t)_mm_extract_epi32(rhs2, 2),
+        (int32_t)_mm_extract_epi32(lhs2, 3) /
+        (int32_t)_mm_extract_epi32(rhs2, 3),
+        (int32_t)_mm_extract_epi32(lhs3, 0) /
+        (int32_t)_mm_extract_epi32(rhs3, 0),
+        (int32_t)_mm_extract_epi32(lhs3, 1) /
+        (int32_t)_mm_extract_epi32(rhs3, 1),
+        (int32_t)_mm_extract_epi32(lhs3, 2) /
+        (int32_t)_mm_extract_epi32(rhs3, 2),
+        (int32_t)_mm_extract_epi32(lhs3, 3) /
+        (int32_t)_mm_extract_epi32(rhs3, 3));
+}
+#endif
+
+// 128-bit uint32_t
+always_inline void div(clsvec<uint32_t, 4> const *lhs,
+    intrin_type_t<uint32_t, 4> const& rhs,
+    intrin_type_t<uint32_t, 4>& res)
+{
+    intrin_type_t<int32_t, 4> const& lhs0 = lhs->data;
+    intrin_type_t<int32_t, 4> const& rhs0 = rhs;
+    res = _mm_setr_epi32(
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 0) /
+              (uint32_t)_mm_extract_epi32(rhs0, 0)),
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 1) /
+              (uint32_t)_mm_extract_epi32(rhs0, 1)),
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 2) /
+              (uint32_t)_mm_extract_epi32(rhs0, 2)),
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 3) /
+              (uint32_t)_mm_extract_epi32(rhs0, 3)));
+}
+
+#if defined(__AVX2__)
+// 256-bit uint32_t
+always_inline void div(clsvec<uint32_t, 8> const *lhs,
+    intrin_type_t<uint32_t, 8> const& rhs,
+    intrin_type_t<uint32_t, 8>& res)
+{
+    intrin_type_t<uint32_t, 4> lhs0 = _mm256_extracti128_si256(lhs->data, 0);
+    intrin_type_t<uint32_t, 4> lhs1 = _mm256_extracti128_si256(lhs->data, 1);
+    intrin_type_t<uint32_t, 4> rhs0 = _mm256_extracti128_si256(rhs, 0);
+    intrin_type_t<uint32_t, 4> rhs1 = _mm256_extracti128_si256(rhs, 1);
+    res = _mm256_setr_epi32(
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 0) /
+              (uint32_t)_mm_extract_epi32(rhs0, 0)),
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 1) /
+              (uint32_t)_mm_extract_epi32(rhs0, 1)),
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 2) /
+              (uint32_t)_mm_extract_epi32(rhs0, 2)),
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 3) /
+              (uint32_t)_mm_extract_epi32(rhs0, 3)),
+        (int)((uint32_t)_mm_extract_epi32(lhs1, 0) /
+              (uint32_t)_mm_extract_epi32(rhs1, 0)),
+        (int)((uint32_t)_mm_extract_epi32(lhs1, 1) /
+              (uint32_t)_mm_extract_epi32(rhs1, 1)),
+        (int)((uint32_t)_mm_extract_epi32(lhs1, 2) /
+              (uint32_t)_mm_extract_epi32(rhs1, 2)),
+        (int)((uint32_t)_mm_extract_epi32(lhs1, 3) /
+              (uint32_t)_mm_extract_epi32(rhs1, 3)));
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint32_t
+always_inline void div(clsvec<uint32_t, 16> const *lhs,
+    intrin_type_t<uint32_t, 16> const& rhs,
+    intrin_type_t<uint32_t, 16>& res)
+{
+    intrin_type_t<uint32_t, 4> lhs0 = _mm512_extracti32x4_epi32(lhs->data, 0);
+    intrin_type_t<uint32_t, 4> lhs1 = _mm512_extracti32x4_epi32(lhs->data, 1);
+    intrin_type_t<uint32_t, 4> lhs2 = _mm512_extracti32x4_epi32(lhs->data, 2);
+    intrin_type_t<uint32_t, 4> lhs3 = _mm512_extracti32x4_epi32(lhs->data, 3);
+    intrin_type_t<uint32_t, 4> rhs0 = _mm512_extracti32x4_epi32(rhs, 0);
+    intrin_type_t<uint32_t, 4> rhs1 = _mm512_extracti32x4_epi32(rhs, 1);
+    intrin_type_t<uint32_t, 4> rhs2 = _mm512_extracti32x4_epi32(rhs, 2);
+    intrin_type_t<uint32_t, 4> rhs3 = _mm512_extracti32x4_epi32(rhs, 3);
+    res = _mm512_setr_epi32(
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 0) /
+              (uint32_t)_mm_extract_epi32(rhs0, 0)),
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 1) /
+              (uint32_t)_mm_extract_epi32(rhs0, 1)),
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 2) /
+              (uint32_t)_mm_extract_epi32(rhs0, 2)),
+        (int)((uint32_t)_mm_extract_epi32(lhs0, 3) /
+              (uint32_t)_mm_extract_epi32(rhs0, 3)),
+        (int)((uint32_t)_mm_extract_epi32(lhs1, 0) /
+              (uint32_t)_mm_extract_epi32(rhs1, 0)),
+        (int)((uint32_t)_mm_extract_epi32(lhs1, 1) /
+              (uint32_t)_mm_extract_epi32(rhs1, 1)),
+        (int)((uint32_t)_mm_extract_epi32(lhs1, 2) /
+              (uint32_t)_mm_extract_epi32(rhs1, 2)),
+        (int)((uint32_t)_mm_extract_epi32(lhs1, 3) /
+              (uint32_t)_mm_extract_epi32(rhs1, 3)),
+        (int)((uint32_t)_mm_extract_epi32(lhs2, 0) /
+              (uint32_t)_mm_extract_epi32(rhs2, 0)),
+        (int)((uint32_t)_mm_extract_epi32(lhs2, 1) /
+              (uint32_t)_mm_extract_epi32(rhs2, 1)),
+        (int)((uint32_t)_mm_extract_epi32(lhs2, 2) /
+              (uint32_t)_mm_extract_epi32(rhs2, 2)),
+        (int)((uint32_t)_mm_extract_epi32(lhs2, 3) /
+              (uint32_t)_mm_extract_epi32(rhs2, 3)),
+        (int)((uint32_t)_mm_extract_epi32(lhs3, 0) /
+              (uint32_t)_mm_extract_epi32(rhs3, 0)),
+        (int)((uint32_t)_mm_extract_epi32(lhs3, 1) /
+              (uint32_t)_mm_extract_epi32(rhs3, 1)),
+        (int)((uint32_t)_mm_extract_epi32(lhs3, 2) /
+              (uint32_t)_mm_extract_epi32(rhs3, 2)),
+        (int)((uint32_t)_mm_extract_epi32(lhs3, 3) /
+              (uint32_t)_mm_extract_epi32(rhs3, 3)));
+}
+#endif
+
+// 128-bit float
+always_inline void div(clsvec<float, 4> const *lhs,
+    intrin_type_t<float, 4> const& rhs,
+    intrin_type_t<float, 4>& res)
+{
+    res = _mm_div_ps(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit float
+always_inline void div(clsvec<float, 8> const *lhs,
+    intrin_type_t<float, 8> const& rhs,
+    intrin_type_t<float, 8>& res)
+{
+    res = _mm256_div_ps(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit float
+always_inline void div(clsvec<float, 16> const *lhs,
+    intrin_type_t<float, 16> const& rhs,
+    intrin_type_t<float, 16>& res)
+{
+    res = _mm512_div_ps(lhs->data, rhs);
+}
+#endif
+
+// always_inline __m256i _mm256_setr_epi64x(
+//     long long v0, long long v1,
+//     long long v2, long long v3)
+// {
+//     return _mm256_set_epi64x(v3, v2, v1, v0);
+// }
+
+// always_inline __m512i _mm512_setr_epi64(
+//     long long v0, long long v1,
+//     long long v2, long long v3,
+//     long long v4, long long v5,
+//     long long v6, long long v7)
+// {
+//     return _mm512_set_epi64(v7, v6, v5, v4, v3, v2, v1, v0);
+// }
+
+// 128-bit int64_t
+always_inline void div(clsvec<int64_t, 2> const *lhs,
+    intrin_type_t<int64_t, 2> const& rhs,
+    intrin_type_t<int64_t, 2>& res)
+{
+    intrin_type_t<uint64_t, 2> const& lhs0 = lhs->data;
+    intrin_type_t<uint64_t, 2> const& rhs0 = rhs;
+
+    res = _mm_setr_epi64x(
+        (int64_t)((uint64_t)_mm_extract_epi64(lhs0, 0) /
+                  (uint64_t)_mm_extract_epi64(rhs0, 0)),
+        (int64_t)((uint64_t)_mm_extract_epi64(lhs0, 1) /
+                  (uint64_t)_mm_extract_epi64(rhs0, 1)));
+}
+
+#if defined(__AVX2__)
+// 256-bit int64_t
+always_inline void div(clsvec<int64_t, 4> const *lhs,
+    intrin_type_t<int64_t, 4> const& rhs,
+    intrin_type_t<int64_t, 4>& res)
+{
+    intrin_type_t<int64_t, 2> lhs0 = _mm256_extracti128_si256(lhs->data, 0);
+    intrin_type_t<int64_t, 2> lhs1 = _mm256_extracti128_si256(lhs->data, 1);
+    intrin_type_t<int64_t, 2> rhs0 = _mm256_extracti128_si256(rhs, 0);
+    intrin_type_t<int64_t, 2> rhs1 = _mm256_extracti128_si256(rhs, 1);
+    res = _mm256_setr_epi64x(
+        _mm_extract_epi64(lhs0, 0) /
+        _mm_extract_epi64(rhs0, 0),
+        _mm_extract_epi64(lhs0, 1) /
+        _mm_extract_epi64(rhs0, 1),
+        _mm_extract_epi64(lhs1, 0) /
+        _mm_extract_epi64(rhs1, 0),
+        _mm_extract_epi64(lhs1, 1) /
+        _mm_extract_epi64(rhs1, 1));
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit int64_t
+always_inline void div(clsvec<int64_t, 8> const *lhs,
+    intrin_type_t<int64_t, 8> const& rhs,
+    intrin_type_t<int64_t, 8>& res)
+{
+    intrin_type_t<int64_t, 2> const& lhs0 = lhs->data;
+    intrin_type_t<int64_t, 2> const& rhs0 = rhs;
+
+    res = _mm_setr_epi64x(
+        _mm_extract_epi64(lhs0, 0) /
+        _mm_extract_epi64(rhs0, 0)),
+        _mm_extract_epi64(lhs0, 1) /
+        _mm_extract_epi64(rhs0, 1));
+
+#endif
+
+// 128-bit uint64_t
+always_inline void div(clsvec<uint64_t, 2> const *lhs,
+    intrin_type_t<uint64_t, 2> const& rhs,
+    intrin_type_t<uint64_t, 2>& res)
+{
+
+}
+
+#if defined(__AVX2__)
+// 256-bit uint64_t
+always_inline void div(clsvec<uint64_t, 4> const *lhs,
+    intrin_type_t<uint64_t, 4> const& rhs,
+    intrin_type_t<uint64_t, 4>& res)
+{
+
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit uint64_t
+always_inline void div(clsvec<uint64_t, 8> const *lhs,
+    intrin_type_t<uint64_t, 8> const& rhs,
+    intrin_type_t<uint64_t, 8>& res)
+{
+
+}
+#endif
+
+// 128-bit double
+always_inline void div(clsvec<double, 2> const *lhs,
+    intrin_type_t<double, 2> const& rhs,
+    intrin_type_t<double, 2>& res)
+{
+    res = _mm_div_pd(lhs->data, rhs);
+}
+
+#if defined(__AVX2__)
+// 256-bit double
+always_inline void div(clsvec<double, 4> const *lhs,
+    intrin_type_t<double, 4> const& rhs,
+    intrin_type_t<double, 4>& res)
+{
+    res = _mm256_div_pd(lhs->data, rhs);
+}
+#endif
+
+#if defined(__AVX512F__)
+// 512-bit double
+always_inline void div(clsvec<double, 8> const *lhs,
+    intrin_type_t<double, 8> const& rhs,
+    intrin_type_t<double, 8>& res)
+{
+    res = _mm512_div_pd(lhs->data, rhs);
+}
 #endif
 
 template<typename T>
@@ -227,45 +3933,45 @@ using to_vec_t = typename to_vec<T>::type;
 template<typename T>
 struct component_of;
 
-template <> struct component_of<vecu8x16> { using type = uint8_t; };
-template <> struct component_of<vecu8x32> { using type = uint8_t; };
-template <> struct component_of<vecu8x64> { using type = uint8_t; };
+template<> struct component_of<vecu8x16> { using type = uint8_t; };
+template<> struct component_of<vecu8x32> { using type = uint8_t; };
+template<> struct component_of<vecu8x64> { using type = uint8_t; };
 
-template <> struct component_of<veci8x16> { using type = int8_t; };
-template <> struct component_of<veci8x32> { using type = int8_t; };
-template <> struct component_of<veci8x64> { using type = int8_t; };
+template<> struct component_of<veci8x16> { using type = int8_t; };
+template<> struct component_of<veci8x32> { using type = int8_t; };
+template<> struct component_of<veci8x64> { using type = int8_t; };
 
-template <> struct component_of<vecu16x8> { using type = uint16_t; };
-template <> struct component_of<vecu16x16> { using type = uint16_t; };
-template <> struct component_of<vecu16x32> { using type = uint16_t; };
+template<> struct component_of<vecu16x8> { using type = uint16_t; };
+template<> struct component_of<vecu16x16> { using type = uint16_t; };
+template<> struct component_of<vecu16x32> { using type = uint16_t; };
 
-template <> struct component_of<veci16x8> { using type = int16_t; };
-template <> struct component_of<veci16x16> { using type = int16_t; };
-template <> struct component_of<veci16x32> { using type = int16_t; };
+template<> struct component_of<veci16x8> { using type = int16_t; };
+template<> struct component_of<veci16x16> { using type = int16_t; };
+template<> struct component_of<veci16x32> { using type = int16_t; };
 
-template <> struct component_of<vecu32x4> { using type = uint32_t; };
-template <> struct component_of<vecu32x8> { using type = uint32_t; };
-template <> struct component_of<vecu32x16> { using type = uint32_t; };
+template<> struct component_of<vecu32x4> { using type = uint32_t; };
+template<> struct component_of<vecu32x8> { using type = uint32_t; };
+template<> struct component_of<vecu32x16> { using type = uint32_t; };
 
-template <> struct component_of<veci32x4> { using type = int32_t; };
-template <> struct component_of<veci32x8> { using type = int32_t; };
-template <> struct component_of<veci32x16> { using type = int32_t; };
+template<> struct component_of<veci32x4> { using type = int32_t; };
+template<> struct component_of<veci32x8> { using type = int32_t; };
+template<> struct component_of<veci32x16> { using type = int32_t; };
 
-template <> struct component_of<vecf32x4> { using type = float; };
-template <> struct component_of<vecf32x8> { using type = float; };
-template <> struct component_of<vecf32x16> { using type = float; };
+template<> struct component_of<vecf32x4> { using type = float; };
+template<> struct component_of<vecf32x8> { using type = float; };
+template<> struct component_of<vecf32x16> { using type = float; };
 
-template <> struct component_of<vecu64x2> { using type = uint64_t; };
-template <> struct component_of<vecu64x4> { using type = uint64_t; };
-template <> struct component_of<vecu64x8> { using type = uint64_t; };
+template<> struct component_of<vecu64x2> { using type = uint64_t; };
+template<> struct component_of<vecu64x4> { using type = uint64_t; };
+template<> struct component_of<vecu64x8> { using type = uint64_t; };
 
-template <> struct component_of<veci64x2> { using type = int64_t; };
-template <> struct component_of<veci64x4> { using type = int64_t; };
-template <> struct component_of<veci64x8> { using type = int64_t; };
+template<> struct component_of<veci64x2> { using type = int64_t; };
+template<> struct component_of<veci64x4> { using type = int64_t; };
+template<> struct component_of<veci64x8> { using type = int64_t; };
 
-template <> struct component_of<vecf64x2> { using type = double; };
-template <> struct component_of<vecf64x4> { using type = double; };
-template <> struct component_of<vecf64x8> { using type = double; };
+template<> struct component_of<vecf64x2> { using type = double; };
+template<> struct component_of<vecf64x4> { using type = double; };
+template<> struct component_of<vecf64x8> { using type = double; };
 
 template<typename T>
 using component_of_t = typename component_of<T>::type;
@@ -364,11 +4070,6 @@ using int_by_size_t = typename int_by_size<N>::type;
 
 template<size_t N>
 using uint_by_size_t = typename uint_by_size<N>::type;
-
-#ifndef always_inline
-#define always_inline __attribute__((__always_inline__)) static inline
-#define always_inline_method __attribute__((__always_inline__)) inline
-#endif
 
 always_inline vecu32x8 vec_lo(vecu32x16 whole)
 {
@@ -646,7 +4347,15 @@ always_inline To convert_to(From const& orig)
 template<typename As, typename From>
 always_inline constexpr As cast_to(From const& rhs)
 {
+#ifdef __clang__
+    static_assert(sizeof(As) == sizeof(From),
+        "This is too much to handle at once, make them the same size first");
+    As result;
+    __builtin_memcpy(&result, &rhs, sizeof(result));
+    return result;
+#else
     return __builtin_bit_cast(As, rhs);
+#endif
 }
 
 always_inline constexpr vecu32x4 vec_blend(
@@ -660,10 +4369,11 @@ always_inline vecu32x16 vec_blend(
 {
 #if defined(__AVX512F__)
     return cast_to<vecu32x16>(
-        _mm512_blendv_epi8(
-        cast_to<__m512i>(existing),
-        cast_to<__m512i>(updated),
-        cast_to<__m512i>(mask)));
+        _mm512_mask_blend_epi32(
+            _mm512_movepi32_mask(
+                cast_to<__m512i>(mask)),
+            cast_to<__m512i>(existing),
+            cast_to<__m512i>(updated)));
 #elif defined(__AVX2__)
     vecu32x8 lo = cast_to<vecu32x8>(
         _mm256_blendv_epi8(
@@ -1248,9 +4958,9 @@ always_inline vecu32x16 vec_gather(uint32_t const *buffer,
     vecu32x16 result = cast_to<vecu32x16>(
         _mm512_mask_i32gather_epi32(
         background,
-        reinterpret_cast<int const *>(texture->pixels),
-        cast_to<__m512i>(indices),
         compact_mask,
+        cast_to<__m512i>(indices),
+        reinterpret_cast<int const *>(buffer),
         sizeof(uint32_t)));
 #elif GATHER_IS_GOOD && defined(__AVX2__)
     // Pair of 256 bit operations
@@ -1890,7 +5600,7 @@ vec_mask_pair(X const& i)
     if constexpr (sizeof(X) == 32 && integral)
         return {
             _mm256_movemask_epi8(
-                cast_to<__m256>(i)),
+                cast_to<__m256i>(i)),
             ~-(1UL << sizeof(X))
         };
     if constexpr (sizeof(X) == 32 &&

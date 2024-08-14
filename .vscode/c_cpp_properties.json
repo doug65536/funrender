@@ -6,7 +6,17 @@
                 "${workspaceFolder}/**",
                 "/usr/include/SDL2"
             ],
-            "defines": ["HAVE_VEC256=1"]
+            "defines": ["HAVE_VEC256=1","__AVX2__=1"]
+        },
+        {
+            "name": "Arm",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/aarch64-linux-gnu/include",
+                "/usr/include/SDL2"
+            ],
+            "defines": ["HAVE_VEC128=1","__ARM_NEON=1"],
+            "compilerPath": "/usr/bin/aarch64-linux-gnu-g++"
         }
     ],
     "version": 4

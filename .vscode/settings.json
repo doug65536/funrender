@@ -3,7 +3,19 @@
         "chrono": "cpp",
         "algorithm": "cpp",
         "iostream": "cpp",
-        "type_traits": "cpp"
+        "type_traits": "cpp",
+        "any": "cpp",
+        "array": "cpp",
+        "compare": "cpp",
+        "functional": "cpp",
+        "ratio": "cpp",
+        "tuple": "cpp",
+        "utility": "cpp",
+        "variant": "cpp",
+        "string": "cpp",
+        "string_view": "cpp",
+        "*.tcc": "cpp",
+        "vector": "cpp"
     },
     "files.trimTrailingWhitespace": true,
     "C_Cpp.default.mergeConfigurations": true,
@@ -33,5 +45,14 @@
             "binaryPath": "/home/doug/code/funrender/test-funrender",
             "binaryArgs": []
         }
+    ],
+    "terminal.integrated.scrollback": 10000,
+    "C_Cpp.default.compilerArgs": [
+        "-msse4.2",
+        "-msse4.1"
+        // "-mavx512f",
+        // "-mavx512bw",
+        // "-mavx512dq",
+        // "-mavx512vl"
     ]
 }

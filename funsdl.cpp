@@ -2310,8 +2310,10 @@ render_target create_render_target(
         ? memory
         : nullptr);
     t.z_buffer = reinterpret_cast<float*>(
-        has_z
-        ? t.back_buffer + has_color * pixel_count
+        (has_z && has_color)
+        ? t.back_buffer + pixel_count
+        : has_z
+        ? memory
         : nullptr);
 
     return t;

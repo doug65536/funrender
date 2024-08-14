@@ -79,7 +79,7 @@ public:
             ", drained " << drained << " times (" <<
             (executed ? 100ULL * drained / executed : 0) << '.' <<
             std::setw(3) << std::setfill('0') <<
-            ((100000ULL * drained / executed) % 1000) << "%)\n";
+            (executed ? (100000ULL * drained / executed) % 1000 : 0) << "%)\n";
     }
 
     size_t get_reset_peak()

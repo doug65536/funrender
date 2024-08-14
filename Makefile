@@ -73,7 +73,7 @@ endif
 
 ifeq ($(DEBUG),)
 CXXFLAGS += -Ofast -ftree-vectorize \
-	-flto -ffast-math -fassociative-math
+	-flto -ffast-math -fassociative-math -fstrict-aliasing
 else
 CXXFLAGS += -O0
 endif

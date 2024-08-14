@@ -11,7 +11,7 @@
         {
             "label": "build",
             "type": "shell",
-            "command": "reset && make -Bj DEBUG=1",
+            "command": "reset && make -B DEBUG=1",
             "problemMatcher": "$gcc"
         },{
             "label": "make release",
