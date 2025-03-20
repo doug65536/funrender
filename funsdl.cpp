@@ -263,7 +263,7 @@ bool mouselook_pressed[6]; // WASDRF
 // float mouselook_pitch = 1.23f;
 // float mouselook_yaw = -2.92f;
 float mouselook_pitch = 0;
-float mouselook_yaw = 0;
+float mouselook_yaw = 3.1415926535897932384626433832;
 float mouselook_yaw_scale = -0.01f;
 float mouselook_pitch_scale = -0.01f;
 //glm::vec3 mouselook_pos{1029.33,0,388.895};
@@ -1210,7 +1210,7 @@ void render(render_ctx * __restrict ctx)
     uint64_t fps_ns = std::chrono::duration_cast<
         std::chrono::nanoseconds>(fps_since).count();
     last_fps = UINT64_C(1000000000) / fps_ns;
-    smooth_fps = (smooth_fps * 36 + last_fps * 100) / 37;
+    smooth_fps = (smooth_fps * 360 + last_fps * 100) / 361;
     // std::cout << last_fps << " fps\n";
 
     // Click over to the next phase
@@ -1566,7 +1566,7 @@ int main(int argc, char const *const *argv)
         render(ctx.get());
 
         ++count;
-        if (measure && count >= 400)
+        if (measure && count >= 1600)
             break;
     }
 
@@ -1928,7 +1928,7 @@ static scaninfo *scaninfo_transform(
     if (count < parallel_threshold) {
         for (size_t i = 0; i < count; ++i) {
             scaninfo s = ctx->view_mtx_stk.back() * vinp[i];
-            light_vertex(ctx, s);
+            //light_vertex(ctx, s);
             s = ctx->proj_mtx_stk.back() * s;
             ctx->vinp_scratch.emplace_back(s);
         }
@@ -1947,7 +1947,7 @@ static scaninfo *scaninfo_transform(
                     for (size_t i = chunk_start;
                             i < count && i < chunk_start + chunk_sz; ++i) {
                         ctx->vinp_scratch[i] = ctx->view_mtx_stk.back() * vinp[i];
-                        light_vertex(ctx, ctx->vinp_scratch[i]);
+                        //light_vertex(ctx, ctx->vinp_scratch[i]);
                         ctx->vinp_scratch[i] = ctx->proj_mtx_stk.back() * ctx->vinp_scratch[i];
                     }
                 }
