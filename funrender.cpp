@@ -164,6 +164,9 @@ int setup(render_ctx * __restrict ctx, int width, int height)
         mesh.dump_info(std::cerr);
     }
 
+    int orig_width = width;
+    int orig_height = height;
+
     std::string fail_reason;
     uint32_t *pixels = load_image(ctx,
         &width, &height, "earthmap1k.png", &fail_reason);
@@ -177,8 +180,25 @@ int setup(render_ctx * __restrict ctx, int width, int height)
     float znear = 1.0f;
     float zfar = 1048576.0f;
 
+    // Screen aspect ratio
+    float aspect_ratio = (float)orig_width / orig_height;
+
+    // Fixed height for normalized NDC
+    float fheight = 1.0f;
+    // Scale width by aspect
+    float fwidth = fheight * aspect_ratio;
+
+    assert(fheight >= 0.0f);
+
     get_proj_matrix(ctx) = glm::frustum(
-        -1.0f, 1.0f, -1.0f, 1.0f, znear, zfar);
+        // left, right
+        -fwidth, fwidth,
+        // bottom, top ✅ Ensure positive fheight
+        -fheight, fheight,
+        znear, zfar);
+
+    // get_proj_matrix(ctx) = glm::frustum(
+    //     -1.0f, 1.0f, -1.0f, 1.0f, znear, zfar);
 
     get_view_matrix(ctx) = glm::mat4(1.0f);
 
