@@ -525,12 +525,13 @@ void fill_mainloop(
     constexpr size_t vec_sz = vecinfo_t<T>::sz;
     constexpr size_t vec_mask = vecinfo_t<T>::sz - 1;
 
-#if ENABLE_MIPMAP
+#if 1 || ENABLE_MIPMAP
     // the texture coordinates are actually u/w and v/w and w is 1/w,
     // we have to divide them by 1/w to get back to screenspace
-    int mipmap_level = select_mipmap((work.second.t / work.second.p.w) -
+    auto const& texture = job.ctx->texture;
+    int mipmap_level = select_mipmap(job.ctx, (work.second.t / work.second.p.w) -
         (work.first.t / work.first.p.w), std::abs(invWidth));
-    size_t mipmap_offset = indexof_mipmap(mipmap_level);
+    size_t mipmap_offset = indexof_mipmap(job.ctx, mipmap_level);
     uint32_t const * __restrict texture_pixels =
         texture->pixels + mipmap_offset;
     unsigned texture_w = texture->iw >> mipmap_level;
@@ -713,7 +714,7 @@ void fill_mainloop(
                 if constexpr (cubemap)
                     tex_off += face_nrs;
 
-    #if DEBUG_MIPMAPS
+    #ifdef DEBUG_MIPMAPS
                 T texels = vec_broadcast<T>(mipmap_level == 0
                     ? 0xFF0000FF
                     : mipmap_level == 1
@@ -1330,8 +1331,9 @@ int select_mipmap(render_ctx * __restrict ctx,
     float d = std::max(s_texels_per_pixel, t_texels_per_pixel);
     // Level is max(0, -floor(log2(d)))
     int level = std::max(0, std::ilogbf(d));
+    // int level = std::max(0, (int)std::log2(d));
     // Clamp to number of mipmap levels that exist
-    level = std::min(ctx->texture->mipmap_levels - 1, level);
+    level = std::min(level, ctx->texture->mipmap_levels - 1);
     // if (level)
     //     std::cerr << "Using level " << level << "\n";
     return level;

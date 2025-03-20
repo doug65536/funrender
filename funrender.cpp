@@ -70,6 +70,8 @@ uint32_t *load_image(render_ctx * __restrict ctx,
     int comp{};
     uint32_t *pixels = (uint32_t *)stbi_load_from_file(
         pngfile, &imgw, &imgh, &comp, 4);
+    fclose(pngfile);
+    pngfile = nullptr;
     if (unlikely(!pixels)) {
         if (fail_reason)
             *fail_reason = stbi_failure_reason();
@@ -106,10 +108,10 @@ uint32_t *load_image(render_ctx * __restrict ctx,
     pixels = (uint32_t*)aligned_alloc(sizeof(vecu32x16), alloc_sz);
     if (unlikely(!pixels))
         throw std::bad_alloc();
+
     std::copy(orig_pixels, orig_pixels + imgw * imgh, pixels);
+    stbi_image_free(orig_pixels);
     orig_pixels = nullptr;
-    if (unlikely(!pixels))
-        throw std::bad_alloc();
 
     uint32_t *input = pixels;
     for (size_pair size : sizes) {
@@ -123,10 +125,10 @@ uint32_t *load_image(render_ctx * __restrict ctx,
         for (size_t y = 0; (int)y < size.second; y += 2) {
             for (size_t x = 0; (int)x < size.first; x += 2) {
                 uint32_t inputs[4] = {
-                    input[y * size.second + x],
-                    input[y * size.second + x + 1],
-                    input[(y + 1) * size.second + x],
-                    input[(y + 1) * size.second + x + 1]
+                    input[y * size.first + x],  // 🔥 Fixed: Correct indexing
+                    input[y * size.first + x + 1],
+                    input[(y + 1) * size.first + x],
+                    input[(y + 1) * size.first + x + 1]
                 };
                 int r = (rgb_r(inputs[0]) + rgb_r(inputs[1]) +
                     rgb_r(inputs[2]) + rgb_r(inputs[3])) >> 2;
@@ -135,26 +137,18 @@ uint32_t *load_image(render_ctx * __restrict ctx,
                 int b = (rgb_b(inputs[0]) + rgb_b(inputs[1]) +
                     rgb_b(inputs[2]) + rgb_b(inputs[3])) >> 2;
                 uint32_t filtered = rgba(r, g, b, 0xFF);
-                output[(y >> 1) * (size.second >> 1) + (x >> 1)] = filtered;
+                output[(y >> 1) * (size.first >> 1) + (x >> 1)] = filtered;  // 🔥 Fixed indexing
             }
         }
 
-        // Point to the end of the input
         input += input_sz;
-
-        // Divide the size by 4
-        input_sz >>= 2;
-
-        // Point to the end of the output
-        output += input_sz;
+        output = input;
     }
 
     *ret_width = imgw;
     *ret_height = imgh;
 
     set_texture(ctx, pixels, imgw, imgh, imgw, sizes.size(), free);
-    free(orig_pixels);
-
     return pixels;
 }
 

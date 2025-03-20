@@ -433,7 +433,7 @@ extern std::vector<fill_task_worker> task_workers;
 
 int select_mipmap(render_ctx * __restrict ctx,
     glm::vec2 const& diff_of_t, float invWidth);
-uint32_t indexof_mipmap(int level);
+uint32_t indexof_mipmap(render_ctx * __restrict ctx, int level);
 
 void set_light_enable(render_ctx * __restrict ctx,
     size_t light_nr, bool enable);
