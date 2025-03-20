@@ -384,7 +384,7 @@ void user_frame(render_target& __restrict frame,
         //     " million elements per second\n";
     }
 
-    size_t constexpr triangle_cnt = 1;
+    size_t constexpr triangle_cnt = 256;
     static float ang[triangle_cnt];
     static float xofs[triangle_cnt];
     static float yofs[triangle_cnt];
