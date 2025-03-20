@@ -9,6 +9,14 @@
             "defines": ["HAVE_VEC256=1","__AVX2__=1"]
         },
         {
+            "name": "Linux512",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/include/SDL2"
+            ],
+            "defines": ["HAVE_VEC512=1","__AVX2__=1","__AVX512F__"]
+        },
+        {
             "name": "Arm",
             "includePath": [
                 "${workspaceFolder}/**",

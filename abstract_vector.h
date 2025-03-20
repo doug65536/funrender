@@ -3654,23 +3654,141 @@ always_inline void div(clsvec<int64_t, 8> const *lhs,
     intrin_type_t<int64_t, 8> const& rhs,
     intrin_type_t<int64_t, 8>& res)
 {
-    intrin_type_t<int64_t, 2> const& lhs0 = lhs->data;
-    intrin_type_t<int64_t, 2> const& rhs0 = rhs;
+#ifdef __FAST_MATH__
+    res = _mm512_cvtpd_epu64(
+        _mm512_div_pd(
+            _mm512_cvt_roundepi64_pd(lhs->data, _MM_FROUND_TO_NEAREST_INT),
+        _mm512_cvt_roundepi64_pd(rhs, _MM_FROUND_TO_NEAREST_INT)));
+#else
+    intrin_type_t<int64_t, 4> const& lhs0 =
+        _mm512_extracti64x4_epi64(lhs->data, 0);
+    intrin_type_t<int64_t, 4> const& lhs1 =
+        _mm512_extracti64x4_epi64(lhs->data, 1);
+    intrin_type_t<int64_t, 4> const& rhs0 =
+        _mm512_extracti64x4_epi64(rhs, 0);
+    intrin_type_t<int64_t, 4> const& rhs1 =
+        _mm512_extracti64x4_epi64(rhs, 1);
 
-    res = _mm_setr_epi64x(
-        _mm_extract_epi64(lhs0, 0) /
-        _mm_extract_epi64(rhs0, 0)),
-        _mm_extract_epi64(lhs0, 1) /
-        _mm_extract_epi64(rhs0, 1));
-
+    res = _mm512_setr_epi64(
+        _mm256_extract_epi64(lhs0, 0) /
+        _mm256_extract_epi64(rhs0, 0),
+        _mm256_extract_epi64(lhs0, 1) /
+        _mm256_extract_epi64(rhs0, 1),
+        _mm256_extract_epi64(lhs0, 2) /
+        _mm256_extract_epi64(rhs0, 2),
+        _mm256_extract_epi64(lhs0, 3) /
+        _mm256_extract_epi64(rhs0, 3),
+        _mm256_extract_epi64(lhs1, 0) /
+        _mm256_extract_epi64(rhs1, 0),
+        _mm256_extract_epi64(lhs1, 1) /
+        _mm256_extract_epi64(rhs1, 1),
+        _mm256_extract_epi64(lhs1, 2) /
+        _mm256_extract_epi64(rhs1, 2),
+        _mm256_extract_epi64(lhs1, 3) /
+        _mm256_extract_epi64(rhs1, 3));
 #endif
+}
+#endif
+
+always_inline __m128d cvt_u64_pd_128(
+    intrin_type_t<uint64_t, 2> const& rhs)
+{
+    __m128i xH = _mm_srli_epi64(rhs, 32);
+    xH = _mm_or_si128(xH, _mm_castpd_si128(
+        //  2^84
+        _mm_set1_pd(19342813113834066795298816.)));
+
+    __m128i xL = _mm_blend_epi16(rhs, _mm_castpd_si128(
+        //  2^52
+        _mm_set1_pd(0x0010000000000000)), 0xcc);
+
+    __m128d f = _mm_sub_pd(_mm_castsi128_pd(xH),
+        //  2^84 + 2^52
+        _mm_set1_pd(19342813118337666422669312.));
+
+    return _mm_add_pd(f, _mm_castsi128_pd(xL));
+}
+
+always_inline __m128d cvt_i64_pd_128(
+    intrin_type_t<int64_t, 2> const& rhs)
+{
+    __m128i xH = _mm_srai_epi32(rhs, 16);
+
+    xH = _mm_blend_epi16(xH, _mm_setzero_si128(), 0x33);
+
+    xH = _mm_add_epi64(xH, _mm_castpd_si128(
+        //  3*2^67
+        _mm_set1_pd(442721857769029238784.)));
+
+    __m128i xL = _mm_blend_epi16(rhs,
+        //  2^52
+        _mm_castpd_si128(_mm_set1_pd(0x0010000000000000)), 0x88);
+
+    __m128d f = _mm_sub_pd(_mm_castsi128_pd(xH),
+        //  3*2^67 + 2^52
+        _mm_set1_pd(442726361368656609280.));
+
+    return _mm_add_pd(f, _mm_castsi128_pd(xL));
+}
+
+always_inline __m256d cvt_u64_pd_256(
+    intrin_type_t<uint64_t, 4> const& rhs)
+{
+    __m256i xH = _mm256_srli_epi64(rhs, 32);
+    xH = _mm256_or_si256(xH, _mm256_castpd_si256(
+        //  2^84
+        _mm256_set1_pd(19342813113834066795298816.)));
+
+    __m256i xL = _mm256_blend_epi16(rhs, _mm256_castpd_si256(
+        //  2^52
+        _mm256_set1_pd(0x0010000000000000)), 0xcc);
+
+    __m256d f = _mm256_sub_pd(_mm256_castsi256_pd(xH),
+        //  2^84 + 2^52
+        _mm256_set1_pd(19342813118337666422669312.));
+
+    return _mm256_add_pd(f, _mm256_castsi256_pd(xL));
+}
+
+always_inline __m256d cvt_i64_pd_256(
+    intrin_type_t<int64_t, 4> const& rhs)
+{
+    __m256i xH = _mm256_srai_epi32(rhs, 16);
+
+    xH = _mm256_blend_epi16(xH, _mm256_setzero_si256(), 0x33);
+
+    xH = _mm256_add_epi64(xH, _mm256_castpd_si256(
+        //  3*2^67
+        _mm256_set1_pd(442721857769029238784.)));
+
+    __m256i xL = _mm256_blend_epi16(rhs,
+        //  2^52
+        _mm256_castpd_si256(_mm256_set1_pd(0x0010000000000000)), 0x88);
+
+    __m256d f = _mm256_sub_pd(_mm256_castsi256_pd(xH),
+        //  3*2^67 + 2^52
+        _mm256_set1_pd(442726361368656609280.));
+
+    return _mm256_add_pd(f, _mm256_castsi256_pd(xL));
+}
 
 // 128-bit uint64_t
 always_inline void div(clsvec<uint64_t, 2> const *lhs,
     intrin_type_t<uint64_t, 2> const& rhs,
     intrin_type_t<uint64_t, 2>& res)
 {
+    uint64_t const& lhs0 = uint64_t(
+        _mm_extract_epi64(lhs->data, 0));
+    uint64_t const& lhs1 = uint64_t(
+        _mm_extract_epi64(lhs->data, 1));
+    uint64_t const& rhs0 = uint64_t(
+        _mm_extract_epi64(rhs, 0));
+    uint64_t const& rhs1 = uint64_t(
+        _mm_extract_epi64(rhs, 1));
 
+    res = _mm_set_epi64x(
+        lhs0 / rhs0,
+        lhs1 / rhs1);
 }
 
 #if defined(__AVX2__)
@@ -4630,6 +4748,76 @@ always_inline vecf32x8 max(vecf32x8 const& a, vecf32x8 const& b)
 #endif
 }
 
+always_inline vecf32x16 max(vecf32x16 const& a, vecf32x16 const& b)
+{
+#if defined(__AVX512F__)
+    return _mm512_max_ps(
+        cast_to<__m512>(a),
+        cast_to<__m512>(b));
+#elif defined(__AVX2__)
+    auto lo = _mm256_max_ps(
+        cast_to<__m256>(vec_lo(a)),
+        cast_to<__m256>(vec_lo(b)));
+    auto hi = _mm256_max_ps(
+        cast_to<__m256>(vec_hi(a)),
+        cast_to<__m256>(vec_hi(b)));
+    return vec_combine(lo, hi);
+#elif defined(__SSE2__)
+    auto lo = _mm_max_ps(
+        cast_to<__m128>(vec_lo(a)),
+        cast_to<__m128>(vec_lo(b)));
+    auto hi = _mm_max_ps(
+        cast_to<__m128>(vec_hi(a)),
+        cast_to<__m128>(vec_hi(b)));
+    return vec_combine(lo, hi);
+#elif defined(__ARM_NEON)
+    auto lo = vmaxq_f32(
+        cast_to<__m128>(vec_lo(a)),
+        cast_to<__m128>(vec_lo(b)));
+    auto hi = vmaxq_f32(
+        cast_to<__m128>(vec_hi(a)),
+        cast_to<__m128>(vec_hi(b)));
+    return vec_combine(lo, hi);
+#else
+    return vec_blend(a, b, b > a);
+#endif
+}
+
+always_inline vecf32x16 min(vecf32x16 const& a, vecf32x16 const& b)
+{
+#if defined(__AVX512F__)
+    return _mm512_min_ps(
+        cast_to<__m512>(a),
+        cast_to<__m512>(b));
+#elif defined(__AVX2__)
+    auto lo = _mm256_min_ps(
+        cast_to<__m256>(vec_lo(a)),
+        cast_to<__m256>(vec_lo(b)));
+    auto hi = _mm256_min_ps(
+        cast_to<__m256>(vec_hi(a)),
+        cast_to<__m256>(vec_hi(b)));
+    return vec_combine(lo, hi);
+#elif defined(__SSE2__)
+    auto lo = _mm_min_ps(
+        cast_to<__m128>(vec_lo(a)),
+        cast_to<__m128>(vec_lo(b)));
+    auto hi = _mm_min_ps(
+        cast_to<__m128>(vec_hi(a)),
+        cast_to<__m128>(vec_hi(b)));
+    return vec_combine(lo, hi);
+#elif defined(__ARM_NEON)
+    auto lo = vminq_f32(
+        cast_to<__m128>(vec_lo(a)),
+        cast_to<__m128>(vec_lo(b)));
+    auto hi = vminq_f32(
+        cast_to<__m128>(vec_hi(a)),
+        cast_to<__m128>(vec_hi(b)));
+    return vec_combine(lo, hi);
+#else
+    return vec_blend(a, b, b < a);
+#endif
+}
+
 template<typename T,
     typename = to_vec_t<T>>
 always_inline T ntload(T *address)
@@ -4817,7 +5005,7 @@ always_inline constexpr F vec_broadcast(C&& rhs)
 
 // It sucks, on AMD anyway.
 // A bunch of scalar loads and inserts beat it, lol.
-#define GATHER_IS_GOOD 1
+#define GATHER_IS_GOOD 0
 
 // 128-bit gather
 always_inline vecu32x4 vec_gather(uint32_t const *buffer,
@@ -5488,7 +5676,7 @@ always_inline vecf32x8 inv_sqrt(vecf32x8 const& x)
 
 always_inline vecf32x16 inv_sqrt(vecf32x16 const& x)
 {
-#if defined(__AVX512F__)
+#if defined(__AVX512ER__)
     vecf32x16 y = cast_to<vecf32x16>(
         _mm512_rsqrt28_ps(
             cast_to<__m512>(x)));

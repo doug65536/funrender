@@ -35,10 +35,13 @@ VECFLAGS += -DARCH_X86_64
 VECFLAGS += -mtune=znver2 \
 	-msse3 -mssse3 -msse4.1 -msse4.2 \
 	-mavx -mavx2 -mfma -mbmi -mbmi2 \
-	-DHAVE_HUGEPAGES=1
+	-DHAVE_HUGEPAGES=1 -mavx512f -mavx512bw -mavx512dq
+#-mavx512er
+#-march=native
 
 #VECFLAGS = -DHAVE_VEC128=1
-VECFLAGS += -DHAVE_VEC256=1
+#VECFLAGS += -DHAVE_VEC256=1
+VECFLAGS += -DHAVE_VEC512=1
 else ifeq ($(ARCH),aarch64)
 VECFLAGS += -DARCH_AARCH64
 VECFLAGS = -march=armv8-a -mcpu=cortex-a72 -DHAVE_VEC128=1
@@ -72,8 +75,8 @@ CXXFLAGS += -fsanitize=$(SANITIZE)
 endif
 
 ifeq ($(DEBUG),)
-CXXFLAGS += -Ofast -ftree-vectorize \
-	-flto -ffast-math -fassociative-math -fstrict-aliasing
+CXXFLAGS += -Ofast -ftree-vectorize
+CXXFLAGS += -flto -ffast-math -fassociative-math -fstrict-aliasing
 else
 CXXFLAGS += -O0
 endif
